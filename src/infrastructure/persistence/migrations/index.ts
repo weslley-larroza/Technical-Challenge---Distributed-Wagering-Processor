@@ -1,5 +1,6 @@
 import { Migration20261115000001InitialSchema } from './Migration20261115000001InitialSchema';
 import { Migration20261115000002IntegrityTriggers } from './Migration20261115000002IntegrityTriggers';
+import { Migration20261115000003PendingReferenceLookupIndex } from './Migration20261115000003PendingReferenceLookupIndex';
 
 /**
  * Explicit, ordered list instead of filesystem globbing: deterministic under Bun,
@@ -8,4 +9,8 @@ import { Migration20261115000002IntegrityTriggers } from './Migration20261115000
 export const migrationsList = [
   { name: 'Migration20261115000001InitialSchema', class: Migration20261115000001InitialSchema },
   { name: 'Migration20261115000002IntegrityTriggers', class: Migration20261115000002IntegrityTriggers },
+  {
+    name: 'Migration20261115000003PendingReferenceLookupIndex',
+    class: Migration20261115000003PendingReferenceLookupIndex,
+  },
 ];
