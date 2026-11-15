@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
@@ -12,9 +10,15 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wagering_db"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   localstack:
-    image: localstack/localstack:latest
+    # Pinned: never `latest` — reproducible builds.
+    image: localstack/localstack:4.4
     container_name: wagering_localstack
     ports:
       - "4566:4566"
@@ -23,6 +27,11 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
     volumes:
       - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:4566/_localstack/health | grep -q '\"sqs\": \"\\(available\\|running\\)\"'"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
 
 volumes:
   postgres_data:
