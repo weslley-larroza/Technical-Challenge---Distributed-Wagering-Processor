@@ -18,6 +18,7 @@ import type {
 import {
   InboxMessageRecord,
   LedgerEntryRecord,
+  OutboxMessageRecord,
   WagerTransactionRecord,
   WalletRecord,
 } from './entities';
@@ -187,6 +188,32 @@ class MikroOrmOutboxRepository implements OutboxRepository {
 
   add(message: OutboxMessage): void {
     this.em.persist(OutboxMessageMapper.toRecord(message));
+  }
+
+  async claimDue(now: Date, limit: number): Promise<OutboxMessage[]> {
+    const rows = await this.em.find(
+      OutboxMessageRecord,
+      { publishedAt: null, nextAttemptAt: { $lte: now } },
+      {
+        orderBy: { nextAttemptAt: 'asc', id: 'asc' },
+        limit,
+        lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE, // FOR UPDATE SKIP LOCKED
+      },
+    );
+    return rows.map(OutboxMessageMapper.toDomain);
+  }
+
+  async save(message: OutboxMessage): Promise<void> {
+    const managed = await this.em.findOneOrFail(OutboxMessageRecord, { id: message.id });
+    OutboxMessageMapper.toRecord(message, managed);
+  }
+
+  async stats(now: Date): Promise<{ pending: number; oldestAgeMs: number }> {
+    const [row] = await this.em.execute<{ pending: number; oldest: Date | null }[]>(
+      'select count(*)::int as pending, min(occurred_at) as oldest from outbox_messages where published_at is null',
+    );
+    const oldest = row?.oldest ? new Date(row.oldest).getTime() : now.getTime();
+    return { pending: row?.pending ?? 0, oldestAgeMs: Math.max(0, now.getTime() - oldest) };
   }
 }
 

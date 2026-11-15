@@ -57,6 +57,14 @@ export interface LedgerRepository {
 
 export interface OutboxRepository {
   add(message: OutboxMessage): void;
+  /**
+   * Due, unpublished messages, row-locked with SKIP LOCKED: concurrent publishers get
+   * disjoint batches and never wait on each other. Locks last until the unit of work ends.
+   */
+  claimDue(now: Date, limit: number): Promise<OutboxMessage[]>;
+  save(message: OutboxMessage): Promise<void>;
+  /** Unpublished count and age of the oldest one (outbox lag). */
+  stats(now: Date): Promise<{ pending: number; oldestAgeMs: number }>;
 }
 
 export interface InboxRepository {

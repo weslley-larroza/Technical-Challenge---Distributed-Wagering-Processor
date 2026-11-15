@@ -74,7 +74,7 @@ describe('health', () => {
     expect(await call('GET', '/health/live')).toMatchObject({ status: 200, body: { status: 'ok' } });
     const ready = await call('GET', '/health/ready');
     expect(ready.status).toBe(200);
-    expect(ready.body).toEqual({ status: 'ready', checks: { postgres: { status: 'up' } } });
+    expect(ready.body).toEqual({ status: 'ready', checks: { postgres: { status: 'up' }, sqs: { status: 'up' } } });
   });
 });
 
