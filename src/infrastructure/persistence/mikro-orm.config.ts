@@ -9,6 +9,13 @@ export interface OrmConfigOptions {
   clientUrl?: string;
   poolMax?: number;
   debug?: boolean;
+  /**
+   * Runtime uses `false`: the process boots even if PostgreSQL is down (readiness reports
+   * it, requests get 503) and the pool reconnects on its own. Tests/CLI keep the default.
+   */
+  connect?: boolean;
+  /** Create the database if missing (tests / CLI only; the app never creates databases). */
+  ensureDatabase?: boolean;
 }
 
 export function createOrmConfig(opts: OrmConfigOptions = {}): Options {
@@ -20,6 +27,8 @@ export function createOrmConfig(opts: OrmConfigOptions = {}): Options {
     allowGlobalContext: false,
     forceUtcTimezone: true,
     debug: opts.debug ?? false,
+    connect: opts.connect ?? true,
+    ensureDatabase: opts.ensureDatabase ?? true,
     pool: { min: 0, max: opts.poolMax ?? 10 },
     migrations: {
       migrationsList,
