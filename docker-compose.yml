@@ -35,6 +35,57 @@ services:
       timeout: 3s
       retries: 40
 
+  # ---------------------------------------------------------------- application (profile "app")
+  # docker compose --profile app up -d --build  → migrations, then 3 identical instances.
+  migrate:
+    profiles: ["app"]
+    build: .
+    image: wagering-processor:local
+    command: ["bun", "src/infrastructure/persistence/migrate.ts", "up"]
+    environment: &app-env
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/wagering_db
+      SQS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app1: &app
+    profiles: ["app"]
+    build: .
+    image: wagering-processor:local
+    init: true # tini as PID 1: forwards SIGTERM, reaps zombies
+    stop_grace_period: 30s # > SHUTDOWN_GRACE_MS
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app1
+    ports:
+      - "3001:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+
+  app2:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app2
+    ports:
+      - "3002:3000"
+
+  app3:
+    <<: *app
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app3
+    ports:
+      - "3003:3000"
+
 volumes:
   postgres_data:
   localstack_data:
