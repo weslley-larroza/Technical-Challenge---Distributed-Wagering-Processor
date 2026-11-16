@@ -17,6 +17,7 @@ import { MikroOrmUnitOfWork } from '../infrastructure/persistence/mikro-orm-unit
 import { systemClock, uuidV7Generator } from '../infrastructure/system/system';
 import { PollingLoop } from '../infrastructure/workers/polling-loop';
 import { AllowAllAuthenticator, type RequestAuthenticator } from '../interfaces/http/auth/authenticator';
+import { OidcJwtAuthenticator } from '../interfaces/http/auth/oidc-jwt-authenticator';
 import { SqsWagerConsumer, type SqsWagerConsumerOptions } from '../interfaces/messaging/sqs-wager-consumer';
 import type { AppConfig } from './config';
 
@@ -158,7 +159,9 @@ export async function createContainer(config: AppConfig, overrides: ContainerOve
     logger,
     metrics,
     prometheus,
-    authenticator: overrides.authenticator ?? new AllowAllAuthenticator(),
+    authenticator:
+      overrides.authenticator ??
+      (config.auth.mode === 'oidc' ? new OidcJwtAuthenticator(config.auth.oidc) : new AllowAllAuthenticator()),
     healthIndicators,
     submitWagerTransaction,
     resolvePendingReferences,

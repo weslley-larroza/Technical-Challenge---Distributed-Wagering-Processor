@@ -1,4 +1,5 @@
 import type { LogLevel } from '../infrastructure/observability/json-logger';
+import type { OidcSettings } from '../interfaces/http/auth/oidc-jwt-authenticator';
 import { DEFAULT_DATABASE_URL } from '../infrastructure/persistence/mikro-orm.config';
 
 export interface AppConfig {
@@ -9,7 +10,8 @@ export interface AppConfig {
   lockTimeoutMs: number;
   logLevel: LogLevel;
   shutdownGraceMs: number;
-  auth: { mode: 'none' };
+  /** 'none' = documented open mode (default for local dev); 'oidc' = Keycloak / any OIDC IdP. */
+  auth: { mode: 'none' } | { mode: 'oidc'; oidc: OidcSettings };
   /** Which components this process runs. Every instance may run all of them safely. */
   roles: { http: boolean; consumer: boolean; outbox: boolean; scheduler: boolean };
   sqs: {
@@ -49,6 +51,24 @@ function bool(env: Env, name: string, fallback: boolean): boolean {
   throw new Error(`${name} must be a boolean`);
 }
 
+function loadAuth(env: Env): AppConfig['auth'] {
+  const mode = env.AUTH_MODE ?? 'none';
+  if (mode === 'none') return { mode: 'none' };
+  if (mode !== 'oidc') throw new Error('AUTH_MODE must be "none" or "oidc"');
+  const issuer = env.OIDC_ISSUER;
+  if (!issuer) throw new Error('OIDC_ISSUER is required when AUTH_MODE=oidc');
+  return {
+    mode: 'oidc',
+    oidc: {
+      issuer,
+      jwksUri: env.OIDC_JWKS_URI ?? `${issuer}/protocol/openid-connect/certs`,
+      audience: env.OIDC_AUDIENCE ?? 'wagering-api',
+      providerClaim: env.OIDC_PROVIDER_CLAIM ?? 'provider_id',
+      backofficeRole: env.OIDC_BACKOFFICE_ROLE ?? 'wagering-backoffice',
+    },
+  };
+}
+
 /** All configuration comes from the environment (12-factor). Fails fast on invalid values. */
 export function loadConfig(env: Env = process.env): AppConfig {
   return {
@@ -59,7 +79,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
     lockTimeoutMs: int(env, 'DB_LOCK_TIMEOUT_MS', 5_000),
     logLevel: (env.LOG_LEVEL as LogLevel | undefined) ?? 'info',
     shutdownGraceMs: int(env, 'SHUTDOWN_GRACE_MS', 20_000),
-    auth: { mode: 'none' },
+    auth: loadAuth(env),
     roles: {
       http: bool(env, 'ENABLE_HTTP', true),
       consumer: bool(env, 'ENABLE_CONSUMER', true),

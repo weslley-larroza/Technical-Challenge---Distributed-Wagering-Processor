@@ -357,21 +357,39 @@ Os dois mecanismos se complementam:
 
 ## 14. Autenticação
 
-**Estado atual:** o ponto de extensão está implementado, e o IdP ainda não está conectado.
+**Keycloak via OIDC**, integrando um IdP externo. Não há tabela de usuários nem senhas neste serviço.
 
-- **Porta e guard:** `RequestAuthenticator` + `AuthGuard` global do Nest ([authenticator.ts](src/interfaces/http/auth/authenticator.ts), [nest-infrastructure.ts](src/interfaces/http/nest-infrastructure.ts)). O padrão é `AllowAllAuthenticator`.
-- **Rotas públicas:** health e `/metrics` são marcados com `@Public()`.
-- **Autorização por provider:** já está aplicada. Um `Principal` com `providerIds` só pode submeter e ler transações dos seus providers (403 `PROVIDER_FORBIDDEN`).
-- **Fila:** é tratada como canal interno confiável, mas o `providerId` da mensagem passa pelas mesmas validações de domínio.
+- **Porta e guard:** `RequestAuthenticator` + `AuthGuard` global do Nest ([authenticator.ts](src/interfaces/http/auth/authenticator.ts), [nest-infrastructure.ts](src/interfaces/http/nest-infrastructure.ts)). Health e `/metrics` são `@Public()`.
+- **Dois adapters**, escolhidos no composition root por `AUTH_MODE`. Nenhum controller ou use case conhece o mecanismo.
+  - `none` (padrão no dev local): `AllowAllAuthenticator`, com um *warning* no boot.
+  - `oidc`: [`OidcJwtAuthenticator`](src/interfaces/http/auth/oidc-jwt-authenticator.ts).
+- **Validação do token (`oidc`):**
+  - verifica o *bearer access token* pela JWKS do realm (`jose`, com cache e rotação de chaves), além de `iss`, `aud` (`wagering-api`), `exp` e `nbf`;
+  - aceita só algoritmos assimétricos;
+  - `jwksUri` é configurável separado do `issuer`, porque dentro do Docker a app acessa `keycloak:8080` enquanto o token diz `localhost:8080`.
+- **Realm versionado:** [docker/keycloak/wagering-realm.json](docker/keycloak/wagering-realm.json), importado no boot do container.
+  - **Providers:** um *client* `confidential` por provedor (`provider-a`, `provider-b`), com *client credentials grant* (máquina para máquina). Um *hardcoded claim mapper* põe `provider_id` no token e um *audience mapper* define `aud = wagering-api`.
+  - **Back-office:** o client `backoffice` tem a realm role `wagering-backoffice` e fica sem restrição de provider.
 
-**Desenho para o Keycloak (OIDC):**
-- **Clientes:** um *client* `confidential` por provedor, com *client credentials grant* (máquina para máquina) e um *mapper* que coloca o `provider_id` num claim.
-- **Validação:** um `OidcJwtAuthenticator` valida o JWT pela JWKS do realm (assinatura, `iss`, `aud`, `exp`) e monta o `Principal { subject, providerIds: [claim] }`.
-- **Escopo da mudança:** nenhuma linha de controller ou use case muda; é só trocar o adapter no composition root.
+**Autorização:**
+
+| Caso | Resposta |
+|---|---|
+| Sem token / assinatura, `iss`, `aud` ou `exp` inválidos | **401** `UNAUTHENTICATED` + `WWW-Authenticate: Bearer` |
+| Token do `provider-a` submetendo `providerId: provider-b` | **403** `PROVIDER_FORBIDDEN` (nada é persistido) |
+| Token sem `provider_id` e sem role de back-office | **403** em operações de provider (autenticado, mas não age por ninguém) |
+| `GET /wagering/transactions/:id` de outro provider | **404**, não 403: não confirma que a transação existe |
+| JWKS / Keycloak fora do ar | **503** retryable: é falha de infraestrutura, não credencial ruim |
+
+- **Wallets:** não pertencem a um provider (a carteira é do jogador), então qualquer principal autenticado as acessa. Restringir a reconciliação ao back-office seria o próximo passo.
+- **Fila:** é tratada como canal interno confiável (sem token), mas o `providerId` da mensagem passa pelas mesmas validações de domínio.
+- **Testes:**
+  - [oidc-auth.test.ts](test/e2e/oidc-auth.test.ts) cobre todos os casos acima com chaves RSA e JWKS reais por HTTP;
+  - [keycloak.test.ts](test/docker/keycloak.test.ts) (opcional) obtém tokens de um **Keycloak real** e exercita o mesmo fluxo.
 
 ## 15. Estratégia de testes
 
-São **201 testes**: 198 rodam sempre e 3 itens são do teste Docker opcional.
+São **208 rodando sempre**, mais os testes Docker opcionais (`bun run test:docker`).
 
 - **Nenhum mock de PostgreSQL ou SQS:** integração, e2e e concorrência usam containers reais.
 - **Injeção de falhas** pelas portas: um publisher que falha, um hook antes do ack, um banco inalcançável.
@@ -386,7 +404,8 @@ São **201 testes**: 198 rodam sempre e 3 itens são do teste Docker opcional.
 | `test/e2e` | Contrato HTTP completo; Postgres fora do ar → 503 com o processo vivo; `/metrics` |
 | `test/concurrency/in-process` | Seção 8 (×10); a mesma aposta 50×; hot wallet; wallets distintas; `ROLLBACK` e `BET` simultâneos |
 | `test/concurrency/multi-instance` | **3 processos reais** do `src/main.ts`; seção 8 entre instâncias; consumidores e publishers concorrentes; **`SIGKILL` no meio do processamento**; queda total do cluster e restart |
-| `test/docker` (opcional) | **`SIGTERM` real em Linux** nas 3 instâncias no meio do processamento: exit 0, nada em voo, exatamente uma vez depois do restart |
+| `test/e2e/oidc-auth` | Autenticação OIDC: 401/403/404/503 com chaves e JWKS reais |
+| `test/docker` (opcional) | **`SIGTERM` real em Linux** nas 3 instâncias no meio do processamento (exit 0, nada em voo, exatamente uma vez depois do restart); fluxo completo com **Keycloak real** |
 
 - **Invariante final:**
   - **por teste:** depois de cada teste, `wallet.balance == saldo reconstruído pelo ledger` em todas as wallets tocadas;
@@ -420,5 +439,5 @@ São **201 testes**: 198 rodam sempre e 3 itens são do teste Docker opcional.
 - **Escolhas concretas** dessa regra e da preferência por linhas maduras:
   - **MikroORM 6.6.17**, e não a 6.6.18, publicada 3 dias antes; a 7.x também existe, mas a linha 6 é madura;
   - **NestJS 11.2.8**, e não a 12.x (de agosto de 2026) nem a 11.2.10 (de 3 dias antes);
-  - **AWS SDK 3.1161.0**, **prom-client 15.1.3** e **Bun 1.4.4** (imagem Docker igual à versão local).
+  - **AWS SDK 3.1161.0**, **prom-client 15.1.3**, **jose 6.2.14**, **Keycloak 26.2.5** e **Bun 1.4.4** (imagem Docker igual à versão local).
 - **Ambientes:** a imagem Docker roda com usuário não-root, `tini` como PID 1 e healthcheck pelo `/health/ready`.

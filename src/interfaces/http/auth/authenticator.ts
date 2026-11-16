@@ -44,8 +44,10 @@ export class AllowAllAuthenticator implements RequestAuthenticator {
   }
 }
 
+export function canAccessProvider(principal: Principal | undefined, providerId: string): boolean {
+  return !principal?.providerIds || principal.providerIds.includes(providerId);
+}
+
 export function assertProviderAccess(principal: Principal | undefined, providerId: string): void {
-  if (principal?.providerIds && !principal.providerIds.includes(providerId)) {
-    throw new ProviderForbiddenError(providerId);
-  }
+  if (!canAccessProvider(principal, providerId)) throw new ProviderForbiddenError(providerId);
 }

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { Container } from '../../bootstrap/container';
-import { assertProviderAccess } from './auth/authenticator';
+import { TransactionNotFoundError } from '../../application/errors';
+import { assertProviderAccess, canAccessProvider } from './auth/authenticator';
 import { statusForResult } from './error-mapping';
 import type { HttpRequest, HttpResponse } from './http-types';
 import { CONTAINER, Public } from './nest-infrastructure';
@@ -71,7 +72,8 @@ export class WageringController {
   @Get('wagering/transactions/:transactionId')
   async byId(@Param('transactionId') transactionId: string, @Req() req: HttpRequest) {
     const tx = await this.c.queries.getTransaction(transactionId);
-    assertProviderAccess(req.principal, tx.providerId);
+    // Another provider's transaction is reported as not found: do not confirm it exists.
+    if (!canAccessProvider(req.principal, tx.providerId)) throw new TransactionNotFoundError(transactionId);
     return tx;
   }
 

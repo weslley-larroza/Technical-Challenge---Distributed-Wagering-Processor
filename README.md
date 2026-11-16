@@ -40,6 +40,22 @@ docker compose --profile app stop app2       # SIGTERM → shutdown gracioso (ve
 docker compose --profile app down
 ```
 
+### Autenticação com Keycloak (opcional)
+
+Por padrão a API roda **sem autenticação** (`AUTH_MODE=none`, com aviso no log), para facilitar o desenvolvimento local. Para ligar OIDC:
+
+```bash
+docker compose --profile auth up -d --wait keycloak     # realm "wagering" importado de docker/keycloak/
+AUTH_MODE=oidc OIDC_ISSUER=http://localhost:8080/realms/wagering bun run start
+
+# token de máquina para máquina do provider-a (clients: provider-a, provider-b, backoffice; secret = <client>-secret)
+TOKEN=$(curl -s -X POST http://localhost:8080/realms/wagering/protocol/openid-connect/token \
+  -d grant_type=client_credentials -d client_id=provider-a -d client_secret=provider-a-secret | jq -r .access_token)
+curl -H "Authorization: Bearer $TOKEN" localhost:3000/wallets/<id>
+```
+
+No cluster Docker: `AUTH_MODE=oidc docker compose --profile app --profile auth up -d --build`. O console admin do Keycloak fica em `localhost:8080`, usuário e senha `admin`/`admin`.
+
 ## Comandos
 
 | Comando | O que faz |
@@ -53,7 +69,7 @@ docker compose --profile app down
 | `bun run test:unit` | Só domínio, sem infraestrutura |
 | `bun run test:integration` | PostgreSQL e LocalStack reais |
 | `bun run test:concurrency` | Paralelismo real, incluindo **3 processos** do `src/main.ts` |
-| `bun run test:docker` | Opcional: `SIGTERM` real nas 3 instâncias do compose (Linux) |
+| `bun run test:docker` | Opcional: `SIGTERM` real nas 3 instâncias do compose (Linux) + fluxo com Keycloak real |
 
 Os testes usam o banco `wagering_test`, criado automaticamente, e filas com nome único por arquivo. Não interferem nos dados de desenvolvimento.
 
@@ -123,6 +139,10 @@ Os eventos de integração (`WagerTransactionProcessed`, `WagerTransactionReject
 | `SQS_RETRY_BASE_SEC` / `SQS_RETRY_MAX_SEC` | `2` / `300` | Backoff exponencial via visibilidade |
 | `ENABLE_HTTP` / `ENABLE_CONSUMER` / `ENABLE_OUTBOX_PUBLISHER` / `ENABLE_PENDING_REFERENCE_WORKER` | `true` | Papéis do processo; todos podem rodar em todas as instâncias |
 | `SHUTDOWN_GRACE_MS` | `20000` | |
+| `AUTH_MODE` | `none` | `none` · `oidc` |
+| `OIDC_ISSUER` | — | Obrigatório com `oidc`, ex.: `http://localhost:8080/realms/wagering` |
+| `OIDC_JWKS_URI` | `<issuer>/protocol/openid-connect/certs` | Separado do issuer para uso em containers |
+| `OIDC_AUDIENCE` / `OIDC_PROVIDER_CLAIM` / `OIDC_BACKOFFICE_ROLE` | `wagering-api` / `provider_id` / `wagering-backoffice` | |
 | `LOG_LEVEL` | `info` | `debug` · `info` · `warn` · `error` · `silent` |
 | `INSTANCE_ID` | `instance-<pid>` | Aparece em todo log |
 

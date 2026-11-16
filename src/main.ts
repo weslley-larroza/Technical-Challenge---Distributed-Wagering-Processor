@@ -17,7 +17,10 @@ if (config.roles.http) {
 if (config.roles.consumer) workers.consumer.start();
 if (config.roles.outbox) workers.outboxLoop.start();
 if (config.roles.scheduler) workers.pendingReferenceLoop.start();
-logger.info('instance started', { roles: config.roles });
+logger.info('instance started', { roles: config.roles, auth: config.auth.mode });
+if (config.auth.mode === 'none') {
+  logger.warn('AUTH_MODE=none: HTTP API is unauthenticated (local development only)');
+}
 
 let shuttingDown = false;
 /**

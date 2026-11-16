@@ -35,6 +35,31 @@ services:
       timeout: 3s
       retries: 40
 
+  # ---------------------------------------------------------------- identity provider (profile "auth")
+  # docker compose --profile auth up -d --wait keycloak
+  # Realm "wagering" is imported from docker/keycloak (clients provider-a, provider-b, backoffice).
+  keycloak:
+    profiles: ["auth"]
+    image: quay.io/keycloak/keycloak:26.2.5
+    container_name: wagering_keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      # tokens carry this issuer for every caller (host and containers alike)
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./docker/keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
   # ---------------------------------------------------------------- application (profile "app")
   # docker compose --profile app up -d --build  → migrations, then 3 identical instances.
   migrate:
@@ -49,6 +74,10 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       LOG_LEVEL: info
+      # AUTH_MODE=oidc docker compose --profile app --profile auth up -d --build
+      AUTH_MODE: ${AUTH_MODE:-none}
+      OIDC_ISSUER: http://localhost:8080/realms/wagering
+      OIDC_JWKS_URI: http://keycloak:8080/realms/wagering/protocol/openid-connect/certs
     depends_on:
       postgres:
         condition: service_healthy
