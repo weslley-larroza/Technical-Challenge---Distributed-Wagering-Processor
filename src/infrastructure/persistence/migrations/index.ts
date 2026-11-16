@@ -2,6 +2,7 @@ import { Migration20261115000001InitialSchema } from './Migration20261115000001I
 import { Migration20261115000002IntegrityTriggers } from './Migration20261115000002IntegrityTriggers';
 import { Migration20261115000003PendingReferenceLookupIndex } from './Migration20261115000003PendingReferenceLookupIndex';
 import { Migration20261116000004DoubleEntryJournal } from './Migration20261116000004DoubleEntryJournal';
+import { Migration20261116000005OutboxTraceParent } from './Migration20261116000005OutboxTraceParent';
 
 /**
  * Explicit, ordered list instead of filesystem globbing: deterministic under Bun,
@@ -15,4 +16,5 @@ export const migrationsList = [
     class: Migration20261115000003PendingReferenceLookupIndex,
   },
   { name: 'Migration20261116000004DoubleEntryJournal', class: Migration20261116000004DoubleEntryJournal },
+  { name: 'Migration20261116000005OutboxTraceParent', class: Migration20261116000005OutboxTraceParent },
 ];

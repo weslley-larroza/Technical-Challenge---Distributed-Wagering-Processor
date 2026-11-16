@@ -1,3 +1,4 @@
+import { isSpanContextValid, trace } from '@opentelemetry/api';
 import type { Logger } from '../../application/ports/system';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
@@ -61,8 +62,11 @@ export class JsonLogger implements Logger {
 
   private log(level: Exclude<LogLevel, 'silent'>, message: string, fields: Record<string, unknown>): void {
     if (ORDER[level] < ORDER[this.level]) return;
+    // log ↔ trace correlation: every line written inside a span carries its ids
+    const span = trace.getActiveSpan()?.spanContext();
+    const traceFields = span && isSpanContextValid(span) ? { traceId: span.traceId, spanId: span.spanId } : {};
     this.write(
-      JSON.stringify({ ts: new Date().toISOString(), level, msg: message, ...this.base, ...redact(fields) }),
+      JSON.stringify({ ts: new Date().toISOString(), level, msg: message, ...this.base, ...traceFields, ...redact(fields) }),
     );
   }
 }

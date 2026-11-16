@@ -166,6 +166,7 @@ export const OutboxMessageMapper = {
       nextAttemptAt: opt(r.nextAttemptAt),
       publishedAt: opt(r.publishedAt),
       lastError: opt(r.lastError),
+      traceParent: opt(r.traceParent),
     });
   },
   toRecord(m: OutboxMessage, target: OutboxMessageRecord = new OutboxMessageRecord()): OutboxMessageRecord {
@@ -178,6 +179,7 @@ export const OutboxMessageMapper = {
     target.nextAttemptAt = m.nextAttemptAt ?? null;
     target.publishedAt = m.publishedAt ?? null;
     target.lastError = m.lastError ?? null;
+    target.traceParent = m.traceParent ?? null;
     return target;
   },
 };

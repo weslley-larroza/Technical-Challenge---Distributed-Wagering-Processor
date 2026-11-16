@@ -47,6 +47,15 @@ docker compose --profile observability up -d                    # Prometheus :90
 docker compose --profile observability --profile app up -d --build   # junto com o cluster de 3 instâncias
 ```
 
+**Traces (OpenTelemetry + Jaeger):** o profile também sobe o Jaeger. A app só exporta spans quando `OTEL_EXPORTER_OTLP_ENDPOINT` está definido:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile app --profile observability up -d --build
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 bun run start      # ou a app local
+```
+
+UI em **http://localhost:16686** (serviço `wagering-processor`). Toda resposta HTTP traz `X-Trace-Id`, e todo log escrito dentro de um span traz `traceId`/`spanId`.
+
 Abra **http://localhost:3300**. O dashboard **Wagering Processor** é provisionado automaticamente (sem login para leitura; admin: `admin`/`admin`). O Prometheus coleta das instâncias do compose (`app1..app3`) e de uma `bun run start` local na porta 3000. Para ver os painéis se mexendo: `BASE_URL=http://localhost:3001 bun run demo` ou `bun run test:load`.
 
 ### Autenticação com Keycloak (opcional)
@@ -156,6 +165,8 @@ Os eventos de integração (`WagerTransactionProcessed`, `WagerTransactionReject
 | `OIDC_ISSUER` | — | Obrigatório com `oidc`, ex.: `http://localhost:8080/realms/wagering` |
 | `OIDC_JWKS_URI` | `<issuer>/protocol/openid-connect/certs` | Separado do issuer para uso em containers |
 | `OIDC_AUDIENCE` / `OIDC_PROVIDER_CLAIM` / `OIDC_BACKOFFICE_ROLE` | `wagering-api` / `provider_id` / `wagering-backoffice` | |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | URL base OTLP/HTTP (ex.: `http://localhost:4318`); vazio = tracing desligado (no-op) |
+| `OTEL_SERVICE_NAME` | `wagering-processor` | |
 | `LOG_LEVEL` | `info` | `debug` · `info` · `warn` · `error` · `silent` |
 | `INSTANCE_ID` | `instance-<pid>` | Aparece em todo log |
 

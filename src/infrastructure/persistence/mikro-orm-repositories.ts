@@ -6,6 +6,7 @@ import { type WagerTransaction, WagerTransactionStatus } from '../../domain/wage
 import type { Wallet } from '../../domain/wallet/wallet';
 import type { WalletLedgerEntry } from '../../domain/wallet/wallet-ledger-entry';
 import type { JournalTransaction, LedgerAccount } from '../../domain/ledger/double-entry';
+import { currentTraceParent, withChildSpan } from '../observability/tracing';
 import type {
   InboxRepository,
   JournalRepository,
@@ -47,8 +48,11 @@ class MikroOrmWalletRepository implements WalletRepository {
   }
 
   async lockById(id: string): Promise<Wallet | undefined> {
-    const r = await this.em.findOne(WalletRecord, { id }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true });
-    return r ? WalletMapper.toDomain(r) : undefined;
+    // Its own span: the time spent here IS the row-lock wait on a hot wallet.
+    return withChildSpan('db.lock wallet', { attributes: { 'wallet.id': id } }, async () => {
+      const r = await this.em.findOne(WalletRecord, { id }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true });
+      return r ? WalletMapper.toDomain(r) : undefined;
+    });
   }
 
   async findByPlayerAndCurrency(playerId: string, currency: string): Promise<Wallet | undefined> {
@@ -190,7 +194,10 @@ class MikroOrmOutboxRepository implements OutboxRepository {
   constructor(private readonly em: EntityManager) {}
 
   add(message: OutboxMessage): void {
-    this.em.persist(OutboxMessageMapper.toRecord(message));
+    const record = OutboxMessageMapper.toRecord(message);
+    // insert only: the trace of the request that produced the event (not of a later retry)
+    record.traceParent ??= currentTraceParent() ?? null;
+    this.em.persist(record);
   }
 
   async claimDue(now: Date, limit: number): Promise<OutboxMessage[]> {

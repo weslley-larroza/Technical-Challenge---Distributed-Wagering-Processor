@@ -160,6 +160,7 @@ export class OutboxMessageRecord {
   nextAttemptAt?: Date | null;
   publishedAt?: Date | null;
   lastError?: string | null;
+  traceParent?: string | null;
 }
 
 export const OutboxMessageSchema = new EntitySchema<OutboxMessageRecord>({
@@ -175,6 +176,7 @@ export const OutboxMessageSchema = new EntitySchema<OutboxMessageRecord>({
     nextAttemptAt: { ...timestamptz, nullable: true },
     publishedAt: { ...timestamptz, nullable: true },
     lastError: { type: 'text', nullable: true },
+    traceParent: { type: 'string', nullable: true },
   },
 });
 

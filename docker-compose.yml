@@ -94,6 +94,18 @@ services:
     depends_on:
       - prometheus
 
+  # Traces (OTLP/HTTP on 4318, UI on http://localhost:16686). The app exports only when
+  # OTEL_EXPORTER_OTLP_ENDPOINT is set — see README.
+  jaeger:
+    profiles: ["observability"]
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: wagering_jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+
   # ---------------------------------------------------------------- application (profile "app")
   # docker compose --profile app up -d --build  → migrations, then 3 identical instances.
   migrate:
@@ -112,6 +124,8 @@ services:
       AUTH_MODE: ${AUTH_MODE:-none}
       OIDC_ISSUER: http://localhost:8080/realms/wagering
       OIDC_JWKS_URI: http://keycloak:8080/realms/wagering/protocol/openid-connect/certs
+      # OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile app --profile observability up -d
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     depends_on:
       postgres:
         condition: service_healthy

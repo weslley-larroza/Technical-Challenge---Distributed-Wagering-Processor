@@ -379,6 +379,21 @@ Os dois mecanismos se complementam:
 | Latência de processamento | `wager_processing_duration_ms{source}`, `http_request_duration_ms{method,route,status}` |
 | Outras | `pending_reference_resolutions_total`, `reconciliation_mismatches_total`, `trial_balance_mismatches_total`, métricas do runtime |
 
+- **Tracing distribuído (OpenTelemetry → Jaeger)** ([tracing.ts](src/infrastructure/observability/tracing.ts)), desligado sem `OTEL_EXPORTER_OTLP_ENDPOINT` (a API vira no-op).
+  - **Instrumentação manual nos limites.** A auto-instrumentação do OTel para JS depende de hooks de `require`, que não funcionam de forma confiável em Bun/ESM, e os spans manuais carregam os atributos de domínio que interessam.
+
+    | Span | Onde | Observação |
+    |---|---|---|
+    | `POST /wagering/transactions` (SERVER) | middleware HTTP | Nome pelo template da rota; continua o `traceparent` de quem chamou; devolve `X-Trace-Id` |
+    | `db.transaction` | Unit of Work | Um por transação SQL; retries aparecem como irmãos |
+    | `db.lock wallet` | `lockById` | **O tempo de espera pelo lock da wallet**, que o teste de carga não conseguia medir |
+    | `sqs.process <fila>` (CONSUMER) | consumidor | Continua o `traceparent` da mensagem, se houver; atributo `messaging.outcome` |
+    | `outbox.publish` (PRODUCER) | publisher | Raiz própria, com **links** para cada trace de origem (um lote mistura vários traces) |
+
+  - **O salto assíncrono:** o `traceparent` da requisição é gravado na linha da outbox (`trace_parent`, migration 5) **no insert**. O publisher, possivelmente em outra instância e mais tarde, cria o link e repassa o valor como atributo da mensagem SQS, para os consumidores dos eventos continuarem o mesmo trace.
+  - **Sem ruído:** spans de banco só são criados **dentro** de uma operação rastreada, e probes (`/health`, `/metrics`) não são rastreados. Na primeira execução contra o Jaeger, os ticks ociosos dos workers geravam centenas de traces vazios por minuto; depois do ajuste, um demo completo gera exatamente os traces das suas requisições.
+  - **Logs ↔ traces:** toda linha de log escrita dentro de um span inclui `traceId`/`spanId`.
+  - **Testes:** [tracing.test.ts](test/integration/tracing.test.ts) verifica, com spans reais em memória, a hierarquia HTTP → transação → lock, o trace atravessando a outbox até o atributo da mensagem SQS, o consumidor continuando o trace do produtor e a correlação nos logs.
 - **Dashboard** (profile `observability` do compose): Prometheus + Grafana com o dashboard **Wagering Processor** provisionado por arquivo ([wagering-overview.json](docker/observability/grafana/dashboards/wagering-overview.json)).
   - **Cards no topo:** instâncias no ar, transações/s, taxa de 5xx, outbox pendente, mensagens na DLQ e divergências contábeis (que devem ser sempre 0).
   - **Linhas:** processamento (status, latência p50/p95/p99, HTTP, idempotência), outbox e mensageria (backlog, lag, filas, retries/DLQ), concorrência (conflitos de lock, retries por motivo, referências fora de ordem) e processo (CPU, memória por instância).
@@ -424,7 +439,7 @@ Os dois mecanismos se complementam:
 
 ## 15. Estratégia de testes
 
-São **230 rodando sempre**, mais os testes Docker opcionais (`bun run test:docker`).
+São **234 rodando sempre**, mais os testes Docker opcionais (`bun run test:docker`).
 
 - **Nenhum mock de PostgreSQL ou SQS:** integração, e2e e concorrência usam containers reais.
 - **Injeção de falhas** pelas portas: um publisher que falha, um hook antes do ack, um banco inalcançável.
@@ -484,5 +499,7 @@ São **230 rodando sempre**, mais os testes Docker opcionais (`bun run test:dock
 - **Escolhas concretas** dessa regra e da preferência por linhas maduras:
   - **MikroORM 6.6.17**, e não a 6.6.18, publicada 3 dias antes; a 7.x também existe, mas a linha 6 é madura;
   - **NestJS 11.2.8**, e não a 12.x (de agosto de 2026) nem a 11.2.10 (de 3 dias antes);
-  - **AWS SDK 3.1161.0**, **prom-client 15.1.3**, **jose 6.2.14**, **Keycloak 26.2.5** e **Bun 1.4.4** (imagem Docker igual à versão local).
+  - **AWS SDK 3.1161.0**, **prom-client 15.1.3**, **jose 6.2.14**, **Keycloak 26.2.5** e **Bun 1.4.4** (imagem Docker igual à versão local);
+  - **OpenTelemetry SDK 2.12.0** (com `@opentelemetry/api` 1.9.0, exigida pelo SDK). Os pacotes `core`/`resources` já têm uma major 3.0, mas o SDK estável ainda é da linha 2: misturar as duas daria cópias incompatíveis;
+  - **Prometheus 2.55.1**, **Grafana 11.3.0** e **Jaeger 1.62.0** no profile `observability`.
 - **Ambientes:** a imagem Docker roda com usuário não-root, `tini` como PID 1 e healthcheck pelo `/health/ready`.

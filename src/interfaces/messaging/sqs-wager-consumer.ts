@@ -12,6 +12,7 @@ import type { Logger, Metrics } from '../../application/ports/system';
 import type { SubmitWagerTransaction } from '../../application/wagering/submit-wager-transaction';
 import { DomainError } from '../../domain/shared/errors';
 import type { QueueUrlResolver } from '../../infrastructure/messaging/sqs';
+import { contextFromTraceParent, SpanKind, withSpan } from '../../infrastructure/observability/tracing';
 import { messagePayloadHash, parseWagerMessage } from './wager-message';
 
 export type ErrorClass = 'business' | 'transient' | 'permanent' | 'unexpected';
@@ -157,7 +158,29 @@ export class SqsWagerConsumer {
     return outcomes.flat();
   }
 
-  private async handle(message: Message): Promise<MessageOutcome> {
+  /** CONSUMER span; continues the producer's trace when the message carries `traceparent`. */
+  private handle(message: Message): Promise<MessageOutcome> {
+    return withSpan(
+      `sqs.process ${this.queue.queueName}`,
+      {
+        kind: SpanKind.CONSUMER,
+        parent: contextFromTraceParent(message.MessageAttributes?.traceparent?.StringValue),
+        attributes: {
+          'messaging.system': 'aws_sqs',
+          'messaging.destination.name': this.queue.queueName,
+          'messaging.message.id': message.MessageId ?? '',
+          'messaging.sqs.receive_count': Number(message.Attributes?.ApproximateReceiveCount ?? '1'),
+        },
+      },
+      async (span) => {
+        const outcome = await this.process(message);
+        span.setAttribute('messaging.outcome', outcome);
+        return outcome;
+      },
+    );
+  }
+
+  private async process(message: Message): Promise<MessageOutcome> {
     const receiveCount = Number(message.Attributes?.ApproximateReceiveCount ?? '1');
     const consumer = this.options.consumerName;
 

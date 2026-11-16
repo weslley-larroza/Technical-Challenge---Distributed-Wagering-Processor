@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-sqs';
 import type { EventPublisher, PublishResult } from '../../application/ports/messaging';
 import type { OutboxMessage } from '../../domain/messaging/outbox-message';
+import { linkFromTraceParent, SpanKind, withSpan } from '../observability/tracing';
 
 export interface SqsSettings {
   endpoint?: string;
@@ -104,7 +105,21 @@ export class SqsEventPublisher implements EventPublisher {
     private readonly queue: QueueUrlResolver,
   ) {}
 
-  async publish(messages: readonly OutboxMessage[]): Promise<PublishResult> {
+  publish(messages: readonly OutboxMessage[]): Promise<PublishResult> {
+    // One PRODUCER span per batch, LINKED to each originating request's trace (a batch
+    // mixes many traces, so links rather than a single parent).
+    return withSpan(
+      'outbox.publish',
+      {
+        kind: SpanKind.PRODUCER,
+        attributes: { 'messaging.system': 'aws_sqs', 'messaging.destination.name': this.queue.queueName, 'messaging.batch.message_count': messages.length },
+        links: messages.flatMap((m) => linkFromTraceParent(m.traceParent)).slice(0, 128),
+      },
+      () => this.send(messages),
+    );
+  }
+
+  private async send(messages: readonly OutboxMessage[]): Promise<PublishResult> {
     const result: PublishResult = { published: [], failed: [] };
     let queueUrl: string;
     try {
@@ -133,7 +148,11 @@ export class SqsEventPublisher implements EventPublisher {
                   MessageBody: JSON.stringify(m.payload),
                   MessageGroupId: m.aggregateId,
                   MessageDeduplicationId: m.id,
-                  MessageAttributes: { eventType: { DataType: 'String', StringValue: m.eventType } },
+                  MessageAttributes: {
+                    eventType: { DataType: 'String', StringValue: m.eventType },
+                    // downstream consumers continue the trace of the request that caused the event
+                    ...(m.traceParent ? { traceparent: { DataType: 'String', StringValue: m.traceParent } } : {}),
+                  },
                 })),
               }),
             );

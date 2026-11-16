@@ -8,6 +8,7 @@ import {
   type UnitOfWork,
   type UnitOfWorkOptions,
 } from '../../application/ports/persistence';
+import { withChildSpan } from '../observability/tracing';
 import { createRepositories } from './mikro-orm-repositories';
 
 export interface MikroOrmUnitOfWorkOptions {
@@ -35,7 +36,16 @@ export class MikroOrmUnitOfWork implements UnitOfWork {
     this.statementTimeoutMs = Math.trunc(options.statementTimeoutMs ?? 15_000);
   }
 
-  async run<T>(work: (repositories: Repositories) => Promise<T>, options: UnitOfWorkOptions = {}): Promise<T> {
+  run<T>(work: (repositories: Repositories) => Promise<T>, options: UnitOfWorkOptions = {}): Promise<T> {
+    // one span per SQL transaction (retries of a use case show up as sibling spans)
+    return withChildSpan(
+      'db.transaction',
+      { attributes: { 'db.system': 'postgresql', 'db.transaction.isolation': options.isolation ?? 'read-committed' } },
+      () => this.runInTransaction(work, options),
+    );
+  }
+
+  private async runInTransaction<T>(work: (repositories: Repositories) => Promise<T>, options: UnitOfWorkOptions): Promise<T> {
     try {
       return await this.orm.em.fork().transactional(
         async (em) => {

@@ -10,7 +10,9 @@ import {
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { INVALID_SPAN_CONTEXT, SpanStatusCode } from '@opentelemetry/api';
 import type { Logger, Metrics } from '../../application/ports/system';
+import { context, propagation, SpanKind, trace, tracer } from '../../infrastructure/observability/tracing';
 import type { RequestAuthenticator } from './auth/authenticator';
 import { mapError } from './error-mapping';
 import type { HttpRequest, HttpResponse } from './http-types';
@@ -94,10 +96,27 @@ export function correlationMiddleware(logger: Logger, metrics: Metrics) {
     res.setHeader('X-Correlation-Id', req.correlationId);
 
     const startedAt = performance.now();
+    // SERVER span; continues the caller's trace when it sends a W3C `traceparent`.
+    // Probes (/health, /metrics: every few seconds from Docker and Prometheus) are not traced.
+    const probe = /^\/(health|metrics)(\/|$|\?)/.test(req.url);
+    const parent = propagation.extract(context.active(), req.headers);
+    const span = probe
+      ? trace.wrapSpanContext(INVALID_SPAN_CONTEXT)
+      : tracer().startSpan(
+          `HTTP ${req.method}`,
+          { kind: SpanKind.SERVER, attributes: { 'http.request.method': req.method, 'correlation.id': req.correlationId } },
+          parent,
+        );
+    if (span.isRecording()) res.setHeader('X-Trace-Id', span.spanContext().traceId);
+
     res.on('finish', () => {
       const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
       // route TEMPLATE (e.g. /wallets/:walletId), never the raw path → bounded cardinality
       const labels = { method: req.method, route: req.route?.path ?? 'unmatched', status: String(res.statusCode) };
+      span.updateName(`${req.method} ${labels.route}`);
+      span.setAttributes({ 'http.route': labels.route, 'http.response.status_code': res.statusCode });
+      if (res.statusCode >= 500) span.setStatus({ code: SpanStatusCode.ERROR });
+      span.end();
       metrics.increment('http_requests_total', labels);
       metrics.observe('http_request_duration_ms', durationMs, labels);
       logger.info('http request', {
@@ -108,6 +127,7 @@ export function correlationMiddleware(logger: Logger, metrics: Metrics) {
         durationMs,
       });
     });
-    next();
+    if (probe) next();
+    else context.with(trace.setSpan(parent, span), next);
   };
 }

@@ -14,6 +14,8 @@ export interface OutboxMessageState {
   nextAttemptAt?: Date;
   publishedAt?: Date;
   lastError?: string;
+  /** W3C trace context of the producing request (transport metadata, not event content). */
+  traceParent?: string;
 }
 
 export class OutboxMessage {
@@ -27,6 +29,7 @@ export class OutboxMessage {
     private _nextAttemptAt: Date | undefined,
     private _publishedAt: Date | undefined,
     private _lastError: string | undefined,
+    public readonly traceParent: string | undefined = undefined,
   ) {}
 
   /** id === eventId, so consumers can deduplicate redelivered publications by eventId. */
@@ -56,6 +59,7 @@ export class OutboxMessage {
       s.nextAttemptAt,
       s.publishedAt,
       s.lastError,
+      s.traceParent,
     );
   }
 
