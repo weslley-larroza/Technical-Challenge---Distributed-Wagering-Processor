@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { JournalTransaction, LedgerAccount } from '../../domain/ledger/double-entry';
 import { WalletBalanceChanged } from '../../domain/messaging/events';
 import { OutboxMessage } from '../../domain/messaging/outbox-message';
 import { Money, type MoneyProps } from '../../domain/money/money';
@@ -61,7 +62,14 @@ export class CreateWallet {
           if (existing) throw new WalletAlreadyExistsError(wallet.playerId, wallet.currency, existing.id);
 
           r.wallets.add(wallet);
+          const playerAccount = LedgerAccount.playerWallet(wallet.id, wallet.currency);
+          const funding = LedgerAccount.funding(wallet.currency);
+          await r.journal.ensureAccounts(openingEntry ? [playerAccount, funding] : [playerAccount]);
           if (openingEntry) {
+            // money enters the closed system: FUNDING → player
+            await r.journal.record(
+              JournalTransaction.forWalletMovement({ entry: openingEntry, counterparty: funding, newId: () => this.ids.next() }),
+            );
             r.transactions.add(
               WagerTransaction.opening({
                 id: openingTransactionId,

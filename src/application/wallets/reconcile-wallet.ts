@@ -1,3 +1,4 @@
+import { LedgerAccount } from '../../domain/ledger/double-entry';
 import { Money, type MoneyProps } from '../../domain/money/money';
 import { canonicalUuid } from '../../domain/shared/identifiers';
 import { WalletNotFoundError } from '../errors';
@@ -12,6 +13,8 @@ export interface ReconciliationReport {
   difference: MoneyProps;
   consistent: boolean;
   checkedEntries: number;
+  /** Balance of the wallet's PLAYER_WALLET account in the double-entry journal. */
+  journalBalance: MoneyProps;
 }
 
 /**
@@ -38,13 +41,19 @@ export class ReconcileWallet {
             const debits = Money.from({ amount: totals.debits, currency: wallet.currency });
             const calculated = credits.subtract(debits);
             const difference = wallet.balance.subtract(calculated);
+            const journal = await r.journal.accountTotals(LedgerAccount.playerWallet(wallet.id, wallet.currency).id);
+            const journalBalance = Money.from({ amount: journal.credits, currency: wallet.currency }).subtract(
+              Money.from({ amount: journal.debits, currency: wallet.currency }),
+            );
             return {
               walletId: wallet.id,
               storedBalance: wallet.balance.toJSON(),
               calculatedBalance: calculated.toJSON(),
               difference: difference.toJSON(),
-              consistent: difference.isZero(),
+              // three independent views must agree: materialized, wallet ledger, double-entry journal
+              consistent: difference.isZero() && journalBalance.equals(wallet.balance),
               checkedEntries: totals.count,
+              journalBalance: journalBalance.toJSON(),
             };
           },
           { isolation: 'repeatable-read' },

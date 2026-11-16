@@ -107,7 +107,8 @@ curl -s -X POST localhost:3000/wagering/transactions \
 | `POST` | `/wallets` |
 | `GET` | `/wallets/:walletId` |
 | `GET` | `/wallets/:walletId/ledger?cursor=…&limit=50` (cursor opaco e estável, `limit` ≤ 200) |
-| `POST` | `/wallets/:walletId/reconciliation` |
+| `POST` | `/wallets/:walletId/reconciliation` (saldo × ledger × journal) |
+| `GET` | `/ledger/trial-balance?currency=BRL`: balancete das partidas dobradas (back-office) |
 | `POST` | `/wagering/transactions` (header `Idempotency-Key`) |
 | `GET` | `/wagering/transactions/:transactionId` |
 | `GET` | `/providers/:providerId/wagering/transactions/:externalTransactionId` |

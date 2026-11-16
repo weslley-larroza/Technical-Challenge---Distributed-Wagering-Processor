@@ -5,8 +5,11 @@ import type { OutboxMessage } from '../../domain/messaging/outbox-message';
 import { type WagerTransaction, WagerTransactionStatus } from '../../domain/wagering/wager-transaction';
 import type { Wallet } from '../../domain/wallet/wallet';
 import type { WalletLedgerEntry } from '../../domain/wallet/wallet-ledger-entry';
+import type { JournalTransaction, LedgerAccount } from '../../domain/ledger/double-entry';
 import type {
   InboxRepository,
+  JournalRepository,
+  TrialBalanceRow,
   LedgerPageRow,
   LedgerRepository,
   LedgerTotals,
@@ -243,6 +246,60 @@ class MikroOrmInboxRepository implements InboxRepository {
   }
 }
 
+/**
+ * Journal writes are plain SQL executed immediately inside the unit of work's
+ * transaction (not staged in the Identity Map): postings are append-only rows that are
+ * never read back within the same unit of work, and the deferred FKs / balance trigger
+ * validate them at COMMIT regardless of order.
+ */
+class SqlJournalRepository implements JournalRepository {
+  constructor(private readonly em: EntityManager) {}
+
+  async ensureAccounts(accounts: readonly LedgerAccount[]): Promise<void> {
+    if (accounts.length === 0) return;
+    const values = accounts.map(() => '(?, ?, ?, ?, ?, now())').join(', ');
+    await this.em.execute(
+      `insert into ledger_accounts (id, code, kind, currency, wallet_id, created_at) values ${values}
+       on conflict (code) do nothing`,
+      accounts.flatMap((a) => [a.id, a.code, a.kind, a.currency, a.walletId ?? null]),
+    );
+  }
+
+  async record(journal: JournalTransaction): Promise<void> {
+    const values = journal.postings.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+    await this.em.execute(
+      `insert into journal_postings (id, transaction_id, account_id, direction, amount, currency, created_at) values ${values}`,
+      journal.postings.flatMap((p) => [p.id, p.transactionId, p.accountId, p.direction, p.money.amount, p.money.currency, p.createdAt]),
+    );
+  }
+
+  async accountTotals(accountId: string): Promise<{ debits: string; credits: string }> {
+    const [row] = await this.em.execute<{ debits: string; credits: string }[]>(
+      `select coalesce(sum(amount) filter (where direction = 'DEBIT'), 0)::numeric(30,2)::text  as debits,
+              coalesce(sum(amount) filter (where direction = 'CREDIT'), 0)::numeric(30,2)::text as credits
+         from journal_postings where account_id = ?`,
+      [accountId],
+    );
+    return { debits: row?.debits ?? '0.00', credits: row?.credits ?? '0.00' };
+  }
+
+  async trialBalance(currency: string): Promise<TrialBalanceRow[]> {
+    return this.em.execute<TrialBalanceRow[]>(
+      `select case when a.kind = 'PLAYER_WALLET' then 'wallet:*' else a.code end as code,
+              a.kind,
+              count(distinct a.id)::int as accounts,
+              coalesce(sum(p.amount) filter (where p.direction = 'DEBIT'), 0)::numeric(30,2)::text  as debits,
+              coalesce(sum(p.amount) filter (where p.direction = 'CREDIT'), 0)::numeric(30,2)::text as credits
+         from ledger_accounts a
+         left join journal_postings p on p.account_id = a.id
+        where a.currency = ?
+        group by 1, 2
+        order by 2, 1`,
+      [currency],
+    );
+  }
+}
+
 export function createRepositories(em: EntityManager): Repositories {
   return {
     wallets: new MikroOrmWalletRepository(em),
@@ -250,5 +307,6 @@ export function createRepositories(em: EntityManager): Repositories {
     ledger: new MikroOrmLedgerRepository(em),
     outbox: new MikroOrmOutboxRepository(em),
     inbox: new MikroOrmInboxRepository(em),
+    journal: new SqlJournalRepository(em),
   };
 }

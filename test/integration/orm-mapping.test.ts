@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import type { MikroORM } from '@mikro-orm/postgresql';
+import { JournalTransaction, LedgerAccount } from '../../src/domain/ledger/double-entry';
 import { WalletBalanceChanged } from '../../src/domain/messaging/events';
+import { createRepositories } from '../../src/infrastructure/persistence/mikro-orm-repositories';
 import { OutboxMessage } from '../../src/domain/messaging/outbox-message';
 import { Money } from '../../src/domain/money/money';
 import { WagerSettlement } from '../../src/domain/wagering/wager-settlement';
@@ -58,6 +60,10 @@ async function openWallet(initial: string): Promise<Wallet> {
       });
       em.persist(WagerTransactionMapper.toRecord(opening));
       em.persist(LedgerEntryMapper.toNewRecord(openingEntry));
+      const journal = createRepositories(em).journal;
+      const funding = LedgerAccount.funding('BRL');
+      await journal.ensureAccounts([LedgerAccount.playerWallet(walletId, 'BRL'), funding]);
+      await journal.record(JournalTransaction.forWalletMovement({ entry: openingEntry, counterparty: funding, newId: randomUUID }));
     }
   });
   return wallet;
@@ -101,6 +107,11 @@ describe('ORM mapping (domain ⇄ records ⇄ PostgreSQL)', () => {
       WalletMapper.toRecord(w, record); // managed → UoW flushes an UPDATE of changed columns
       em.persist(WagerTransactionMapper.toRecord(bet));
       em.persist(LedgerEntryMapper.toNewRecord(outcome.ledgerEntry));
+      const provider = LedgerAccount.providerGaming('provider-a', 'BRL');
+      await createRepositories(em).journal.ensureAccounts([provider]);
+      await createRepositories(em).journal.record(
+        JournalTransaction.forWalletMovement({ entry: outcome.ledgerEntry, counterparty: provider, newId: randomUUID }),
+      );
       const event = WalletBalanceChanged.from(w, outcome.ledgerEntry, {
         newId: randomUUID,
         correlationId: 'corr-1',

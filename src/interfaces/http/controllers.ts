@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { Container } from '../../bootstrap/container';
 import { TransactionNotFoundError } from '../../application/errors';
-import { assertProviderAccess, canAccessProvider } from './auth/authenticator';
+import { assertProviderAccess, canAccessProvider, ProviderForbiddenError } from './auth/authenticator';
 import { statusForResult } from './error-mapping';
 import type { HttpRequest, HttpResponse } from './http-types';
 import { CONTAINER, Public } from './nest-infrastructure';
@@ -85,6 +85,18 @@ export class WageringController {
   ) {
     assertProviderAccess(req.principal, providerId);
     return this.c.queries.getTransactionByExternalId(providerId, externalTransactionId);
+  }
+}
+
+/** Double-entry book. Back-office only: it exposes the house's position per provider. */
+@Controller('ledger')
+export class LedgerController {
+  constructor(@Inject(CONTAINER) private readonly c: Container) {}
+
+  @Get('trial-balance')
+  trialBalance(@Query('currency') currency: string | undefined, @Req() req: HttpRequest) {
+    if (req.principal?.providerIds) throw new ProviderForbiddenError('trial balance (back-office only)');
+    return this.c.getTrialBalance.execute(currency ?? 'BRL');
   }
 }
 

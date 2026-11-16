@@ -215,6 +215,7 @@ describe('queries', () => {
       difference: { amount: '0.00', currency: 'BRL' },
       consistent: true,
       checkedEntries: 1,
+      journalBalance: { amount: '975.00', currency: 'BRL' },
     });
   });
 });
@@ -285,5 +286,18 @@ describe('GET /metrics (Prometheus)', () => {
     expect(text).toMatch(/^sqs_queue_messages\{[^}]*queue="wager-transactions-dlq\.fifo"[^}]*\} \d+/m);
     // process metrics from the runtime
     expect(text).toContain('process_cpu_seconds_total');
+  });
+});
+
+describe('GET /ledger/trial-balance (double-entry)', () => {
+  test('the book balances and every line has debits, credits and balance as decimal strings', async () => {
+    const w = await createWallet('100.00');
+    await submit(txBody(w, { money: { amount: '12.34', currency: 'BRL' } }));
+    const res = await call('GET', '/ledger/trial-balance?currency=BRL');
+    expect(res.status).toBe(200);
+    expect(res.body.balanced).toBe(true);
+    expect(res.body.totals.debits).toEqual(res.body.totals.credits);
+    expect(res.body.lines.map((l: { kind: string }) => l.kind)).toEqual(expect.arrayContaining(['FUNDING', 'PLAYER_WALLET', 'PROVIDER_GAMING']));
+    expect((await call('GET', '/ledger/trial-balance?currency=brl')).status).toBe(400);
   });
 });

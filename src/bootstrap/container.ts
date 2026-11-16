@@ -1,4 +1,5 @@
 import { MikroORM } from '@mikro-orm/postgresql';
+import { GetTrialBalance } from '../application/ledger/trial-balance';
 import { PublishOutbox } from '../application/messaging/publish-outbox';
 import type { EventPublisher } from '../application/ports/messaging';
 import { GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
@@ -168,6 +169,7 @@ export async function createContainer(config: AppConfig, overrides: ContainerOve
     publishOutbox,
     createWallet: new CreateWallet(uow, ids, clock, metrics, logger),
     reconcileWallet: new ReconcileWallet(uow, metrics, logger),
+    getTrialBalance: new GetTrialBalance(uow, metrics, logger),
     queries: new WalletQueries(uow),
     workers: { consumer, outboxLoop, pendingReferenceLoop },
     async close(): Promise<void> {

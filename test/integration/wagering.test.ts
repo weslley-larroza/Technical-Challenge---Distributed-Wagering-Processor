@@ -308,6 +308,7 @@ describe('reconciliation', () => {
       difference: { amount: '0.00', currency: 'BRL' },
       consistent: true,
       checkedEntries: 2,
+      journalBalance: { amount: '374.50', currency: 'BRL' },
     });
   });
 

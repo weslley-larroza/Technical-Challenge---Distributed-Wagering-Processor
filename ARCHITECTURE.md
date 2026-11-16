@@ -100,7 +100,32 @@ stateDiagram-v2
 ### WalletLedgerEntry ([wallet-ledger-entry.ts](src/domain/wallet/wallet-ledger-entry.ts))
 - **Imutabilidade estrutural:** campos `readonly`, `Object.freeze` e nenhum método de transição.
 - **Conferência na factory:** `create()` valida `before ± money == after`, valor positivo e saldos não negativos.
-- **Double-entry:** não implementado (é opcional). O ledger é de partida simples por wallet, mas a FK composta amarra cada lançamento à sua transação (§7).
+- **Visão do jogador:** este ledger é por wallet, com `balanceBefore`/`balanceAfter` encadeados. A visão contábil completa está no journal de partidas dobradas abaixo.
+
+### Ledger de partidas dobradas ([double-entry.ts](src/domain/ledger/double-entry.ts))
+
+O diferencial opcional, feito **sobre** o ledger da wallet, sem substituí-lo, porque o enunciado define a estrutura daquele ledger.
+
+- **Plano de contas, um sistema fechado:**
+
+  | Conta | Código | Papel |
+  |---|---|---|
+  | `PLAYER_WALLET` | `wallet:<walletId>` | Uma por wallet; o saldo dela **é** o saldo da wallet |
+  | `PROVIDER_GAMING` | `provider:<providerId>:<moeda>` | Contrapartida de `BET`/`WIN`/`REFUND`/`ROLLBACK`; saldo > 0 = a casa está ganhando naquele provedor |
+  | `FUNDING` | `funding:<moeda>` | Contrapartida do `OPENING`: o dinheiro que entrou no sistema (saldo negativo) |
+
+- **Lançamentos:** cada movimento de saldo gera um `JournalTransaction` com duas pernas de mesmo valor. A perna do jogador **espelha** o lançamento da wallet, e a contrapartida tem a direção oposta.
+  - Exemplo: `BET 25` = jogador `DEBIT 25` / provedor `CREDIT 25`.
+  - A factory recusa um journal desbalanceado, com uma perna só, com moedas misturadas ou com duas pernas na mesma conta.
+  - **`LOSS` e rejeitadas não geram journal**, assim como não geram lançamento no ledger da wallet.
+- **Invariantes no banco:** um *constraint trigger* adiado no COMMIT exige:
+  - **balanceamento:** Σ débitos = Σ créditos por transação, com ≥ 2 pernas e uma moeda;
+  - **ligação nos dois sentidos:** todo lançamento da wallet tem um journal cuja perna do jogador o espelha (mesma wallet, direção e valor), e nenhum journal existe sem movimento de wallet.
+
+  Consequência: **a soma de todas as contas é sempre zero**, e cada conta de jogador é igual ao saldo da wallet. Postings e contas são append-only.
+- **IDs determinísticos:** o id de uma conta é `md5('account:' || código)`, calculado igual na aplicação e no SQL. Criar uma conta é um `INSERT … ON CONFLICT DO NOTHING`, sem busca nem corrida, e o backfill da migration usa a mesma fórmula.
+- **Por que o saldo das contas da casa não é materializado:** toda aposta toca a conta do provedor. Um saldo atualizado com lock viraria uma **linha quente global** e serializaria todas as wallets, o "lock global" proibido. O saldo é calculado sob demanda (`GET /ledger/trial-balance`, índice `(account_id, seq)`). Só a conta do jogador tem saldo materializado, que já é a própria wallet, com o lock por wallet.
+- **Verificação:** a reconciliação cruza **três** visões (saldo materializado, ledger da wallet e conta do journal), e o balancete prova Σ = 0 por moeda. A migration 4 faz **backfill** dos dados existentes, testado em [double-entry.test.ts](test/integration/double-entry.test.ts).
 
 ## 4. Regras de negócio e interpretações adotadas
 
@@ -227,6 +252,7 @@ As migrations são versionadas e reversíveis (`up`/`down` testados): [migration
 | Estados terminais congelados | Trigger: transação `PROCESSED`/`REJECTED`/`FAILED` não muda; colunas de negócio imutáveis; nunca é apagada |
 | Coerência de estado | `CHECK`s: `failure_code` sse `REJECTED`/`FAILED`; `processed_at` sse terminal; `next_reference_check_at` sse `PENDING_REFERENCE`; `REFUND`/`ROLLBACK` exigem referência; `OPENING` ⇔ provider `internal` |
 | Outbox / inbox | Payload imutável, publicação irreversível; inbox processada é final |
+| **Partidas dobradas** | *Constraint trigger* adiado: Σ débitos = Σ créditos por transação; todo lançamento da wallet tem um journal espelhado e vice-versa; FK `(account_id, currency)` impede perna em outra moeda; postings e contas append-only |
 
 As FKs são `DEFERRABLE INITIALLY DEFERRED`: a integridade é checada no COMMIT, então a ordem de insert do Unit of Work não importa.
 
@@ -393,7 +419,7 @@ Os dois mecanismos se complementam:
 
 ## 15. Estratégia de testes
 
-São **209 rodando sempre**, mais os testes Docker opcionais (`bun run test:docker`).
+São **230 rodando sempre**, mais os testes Docker opcionais (`bun run test:docker`).
 
 - **Nenhum mock de PostgreSQL ou SQS:** integração, e2e e concorrência usam containers reais.
 - **Injeção de falhas** pelas portas: um publisher que falha, um hook antes do ack, um banco inalcançável.
@@ -429,7 +455,7 @@ São **209 rodando sempre**, mais os testes Docker opcionais (`bun run test:dock
 - **`FAILED` é reservado e nunca é gravado.** Uma falha permanente de infraestrutura vai para a DLQ com motivo e métrica, que é a trilha de auditoria. Gravar `FAILED` exigiria escrever no mesmo banco que pode ser a causa da falha.
 - **A ordem pelo HTTP é do provedor.** O SQS FIFO ordena por wallet; no HTTP, a ordem é a de chegada. Uma referência fora de ordem é tratada pelo `PENDING_REFERENCE`.
 - **A reconciliação faz agregação sobre todo o ledger da wallet.** É O(n) por wallet e não é feita em massa. Para escala, o próximo passo seria *checkpoints* de saldo e reconciliação incremental por `seq`.
-- **Ledger de partida simples.** Double-entry (contas de casa e jogador) é opcional e não foi feito.
+- **Balancete calculado, não materializado.** O `GET /ledger/trial-balance` agrega o journal inteiro de uma moeda. É O(n) e serve para auditoria, não para consulta frequente; em escala, usaria saldos por período (*snapshots*). Ver §3.
 - **Uma única moeda nos testes.** O modelo é multi-moeda, e o conflito de moeda é testado, mas os cenários usam BRL.
 - **LocalStack fixado em 4.4.** As imagens mais recentes passaram a exigir token de conta. Em produção, o código usa o SQS real sem mudança: o endpoint é configurável e `useQueueUrlAsEndpoint` só é desligado com endpoint customizado.
 - **Capacidade medida num único host** (`bun run test:load`; análise em [docs/load-test-reference.md](docs/load-test-reference.md)). Com 3 instâncias, gerador, PostgreSQL e LocalStack na mesma máquina:

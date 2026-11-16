@@ -5,6 +5,7 @@ import {
   createTestOrm,
   expectDbError,
   insert,
+  insertJournal,
   ledgerRow,
   now,
   resetSchema,
@@ -49,6 +50,8 @@ describe('migrations', () => {
     await migrator.up();
     expect(await tables()).toEqual([
       'inbox_messages',
+      'journal_postings',
+      'ledger_accounts',
       'outbox_messages',
       'wager_transactions',
       'wallet_ledger_entries',
@@ -161,6 +164,7 @@ describe('ledger', () => {
         await insert(e, 'wallet_ledger_entries', ledgerRow(w.walletId, t.id as string, {
           direction: 'DEBIT', amount: '20.00', balance_before: '100.00', balance_after: '80.00',
         }));
+        await insertJournal(e, { walletId: w.walletId, transactionId: t.id as string, direction: 'DEBIT', amount: '20.00' });
         await e.execute('update wallets set balance = 80.00, version = 2 where id = ?', [w.walletId]);
       }),
       SQLSTATE.foreignKey,
@@ -269,6 +273,7 @@ describe('wager transactions', () => {
         await insert(e, 'wallet_ledger_entries', ledgerRow(w.walletId, t.id as string, {
           amount: '40.00', balance_before: before, balance_after: after,
         }));
+        await insertJournal(e, { walletId: w.walletId, transactionId: t.id as string, direction: 'CREDIT', amount: '40.00' });
         await e.execute('update wallets set balance = ?, version = ? where id = ?', [after, version, w.walletId]);
       });
 

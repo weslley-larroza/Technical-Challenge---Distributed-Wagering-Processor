@@ -77,6 +77,34 @@ export function ledgerRow(walletId: string, transactionId: string, overrides: Ro
   };
 }
 
+/**
+ * Double-entry legs for a wallet ledger line (player leg mirrors it, counterparty takes
+ * the opposite side). Required since migration 4: a wallet entry without a balanced
+ * journal fails at COMMIT.
+ */
+export async function insertJournal(
+  em: EntityManager,
+  p: { walletId: string; transactionId: string; direction: 'DEBIT' | 'CREDIT'; amount: string; counterparty?: string; currency?: string },
+): Promise<void> {
+  const currency = p.currency ?? 'BRL';
+  const counterpartyCode = p.counterparty ?? `provider:provider-a:${currency}`;
+  const kind = counterpartyCode.startsWith('funding:') ? 'FUNDING' : 'PROVIDER_GAMING';
+  await em.execute(
+    `insert into ledger_accounts (id, code, kind, currency, wallet_id, created_at) values
+       (md5('account:wallet:' || ?)::uuid, 'wallet:' || ?, 'PLAYER_WALLET', ?, ?, now()),
+       (md5('account:' || ?)::uuid, ?, ?, ?, null, now())
+     on conflict (code) do nothing`,
+    [p.walletId, p.walletId, currency, p.walletId, counterpartyCode, counterpartyCode, kind, currency],
+  );
+  const opposite = p.direction === 'DEBIT' ? 'CREDIT' : 'DEBIT';
+  await em.execute(
+    `insert into journal_postings (id, transaction_id, account_id, direction, amount, currency, created_at) values
+       (?, ?, md5('account:wallet:' || ?)::uuid, ?, ?, ?, now()),
+       (?, ?, md5('account:' || ?)::uuid, ?, ?, ?, now())`,
+    [randomUUID(), p.transactionId, p.walletId, p.direction, p.amount, currency, randomUUID(), p.transactionId, counterpartyCode, opposite, p.amount, currency],
+  );
+}
+
 /** A consistent wallet: row + OPENING transaction + opening CREDIT entry, in one transaction. */
 export async function seedWallet(orm: MikroORM, balance = '100.00'): Promise<{ walletId: string; playerId: string }> {
   const wallet = walletRow({ balance });
@@ -100,6 +128,7 @@ export async function seedWallet(orm: MikroORM, balance = '100.00'): Promise<{ w
       });
       await insert(em, 'wager_transactions', opening);
       await insert(em, 'wallet_ledger_entries', ledgerRow(walletId, opening.id as string, { amount: balance, balance_after: balance }));
+      await insertJournal(em, { walletId, transactionId: opening.id as string, direction: 'CREDIT', amount: balance, counterparty: 'funding:BRL' });
     }
   });
   return { walletId, playerId };
@@ -130,6 +159,7 @@ export async function seedBet(
       'wallet_ledger_entries',
       ledgerRow(w.walletId, tx.id as string, { direction: 'DEBIT', amount, balance_before: before, balance_after: after }),
     );
+    await insertJournal(em, { walletId: w.walletId, transactionId: tx.id as string, direction: 'DEBIT', amount });
     await em.execute('update wallets set balance = ?, version = ?, updated_at = now() where id = ?', [
       after,
       version,

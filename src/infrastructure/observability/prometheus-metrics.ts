@@ -26,6 +26,7 @@ const COUNTERS: Record<string, MetricSpec> = {
   lock_conflicts_total: { help: 'Row-lock conflicts: deadlocks and lock timeouts', labels: ['operation', 'reason'] },
   pending_reference_resolutions_total: { help: 'PENDING_REFERENCE transactions re-evaluated', labels: ['outcome', 'trigger'] },
   reconciliation_mismatches_total: { help: 'Wallets whose balance differs from the ledger', labels: [] },
+  trial_balance_mismatches_total: { help: 'Trial balances whose debits differ from credits', labels: [] },
   sqs_messages_total: { help: 'Queue messages handled', labels: ['consumer', 'outcome', 'status', 'code'] },
   sqs_retries_total: { help: 'Queue messages scheduled for redelivery', labels: ['consumer', 'reason'] },
   sqs_dlq_total: { help: 'Queue messages moved to the DLQ', labels: ['consumer', 'reason'] },

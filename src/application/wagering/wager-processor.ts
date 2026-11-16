@@ -4,6 +4,7 @@ import {
   WagerTransactionRejected,
   WalletBalanceChanged,
 } from '../../domain/messaging/events';
+import { JournalTransaction, LedgerAccount } from '../../domain/ledger/double-entry';
 import type { EventContext, IntegrationEvent } from '../../domain/messaging/integration-event';
 import { OutboxMessage } from '../../domain/messaging/outbox-message';
 import { FailureCode } from '../../domain/shared/failure-code';
@@ -87,6 +88,13 @@ export class WagerProcessor {
     if (outcome.type === 'processed' && outcome.ledgerEntry) {
       r.ledger.add(outcome.ledgerEntry);
       await r.wallets.save(wallet);
+      // Double-entry: player leg mirrors the wallet entry, the provider's gaming account
+      // takes the other side. Same SQL transaction; balanced-ness re-checked at COMMIT.
+      const counterparty = LedgerAccount.providerGaming(tx.providerId, tx.money.currency);
+      await r.journal.ensureAccounts([counterparty]);
+      await r.journal.record(
+        JournalTransaction.forWalletMovement({ entry: outcome.ledgerEntry, counterparty, newId: () => this.ids.next() }),
+      );
     }
 
     for (const event of this.eventsFor(outcome, wallet, tx, ctx)) {

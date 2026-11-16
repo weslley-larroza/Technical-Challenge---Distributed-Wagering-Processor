@@ -55,6 +55,8 @@ export async function countLogLines(instance: Instance, message: string): Promis
  *  1. every wallet balance == balance rebuilt from its ledger
  *  2. every PROCESSED balance-affecting transaction has exactly one ledger entry,
  *     every other transaction has none
+ *  3. the double-entry book balances per currency, and every player account equals
+ *     its wallet balance
  */
 export async function expectGlobalInvariant(orm: MikroORM): Promise<void> {
   const em = orm.em.fork();
@@ -72,4 +74,25 @@ export async function expectGlobalInvariant(orm: MikroORM): Promise<void> {
      group by t.id, t.status, t.kind
     having (t.status = 'PROCESSED' and t.kind <> 'LOSS') <> (count(l.id) = 1)`);
   if (orphan.length) throw new Error(`transaction/ledger mismatch for ${JSON.stringify(orphan.slice(0, 5))}`);
+
+  // 3. double-entry: the whole book balances per currency (Σ of all accounts = 0) …
+  const book = await em.execute(`
+    select currency,
+           coalesce(sum(amount) filter (where direction = 'DEBIT'), 0)  as debits,
+           coalesce(sum(amount) filter (where direction = 'CREDIT'), 0) as credits
+      from journal_postings group by currency
+    having coalesce(sum(amount) filter (where direction = 'DEBIT'), 0)
+        <> coalesce(sum(amount) filter (where direction = 'CREDIT'), 0)`);
+  if (book.length) throw new Error(`double-entry book not balanced: ${JSON.stringify(book)}`);
+
+  // … and every player account equals its wallet's materialized balance
+  const accounts = await em.execute(`
+    select w.id, w.balance,
+           coalesce(sum(case p.direction when 'CREDIT' then p.amount else -p.amount end), 0) as journal
+      from wallets w
+      left join ledger_accounts a on a.wallet_id = w.id
+      left join journal_postings p on p.account_id = a.id
+     group by w.id, w.balance
+    having w.balance <> coalesce(sum(case p.direction when 'CREDIT' then p.amount else -p.amount end), 0)`);
+  if (accounts.length) throw new Error(`player account != wallet balance for ${JSON.stringify(accounts.slice(0, 5))}`);
 }

@@ -173,3 +173,13 @@ describe('AUTH_MODE=oidc', () => {
     }
   });
 });
+
+describe('trial balance authorization', () => {
+  test('provider tokens cannot read the house book; back-office can', async () => {
+    expect((await call('/ledger/trial-balance', { bearer: await providerA() })).status).toBe(403);
+    const backoffice = await token({ realm_access: { roles: ['wagering-backoffice'] } });
+    const res = await call('/ledger/trial-balance', { bearer: backoffice });
+    expect(res.status).toBe(200);
+    expect(res.body.balanced).toBe(true);
+  });
+});

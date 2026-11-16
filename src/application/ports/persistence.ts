@@ -1,3 +1,4 @@
+import type { JournalTransaction, LedgerAccount } from '../../domain/ledger/double-entry';
 import type { InboxMessage } from '../../domain/messaging/inbox-message';
 import type { OutboxMessage } from '../../domain/messaging/outbox-message';
 import type { WagerTransaction } from '../../domain/wagering/wager-transaction';
@@ -73,6 +74,24 @@ export interface OutboxRepository {
   stats(now: Date): Promise<{ pending: number; oldestAgeMs: number }>;
 }
 
+export interface TrialBalanceRow {
+  code: string;
+  kind: string;
+  /** number of accounts aggregated in this row (player wallets are aggregated) */
+  accounts: number;
+  debits: string;
+  credits: string;
+}
+
+export interface JournalRepository {
+  /** Idempotent: creates the accounts that do not exist yet (deterministic ids). */
+  ensureAccounts(accounts: readonly LedgerAccount[]): Promise<void>;
+  record(journal: JournalTransaction): Promise<void>;
+  accountTotals(accountId: string): Promise<{ debits: string; credits: string }>;
+  /** System accounts one by one, player wallets aggregated into one row. */
+  trialBalance(currency: string): Promise<TrialBalanceRow[]>;
+}
+
 export interface InboxRepository {
   find(consumerName: string, messageId: string): Promise<InboxMessage | undefined>;
   add(message: InboxMessage): void;
@@ -84,6 +103,7 @@ export interface Repositories {
   ledger: LedgerRepository;
   outbox: OutboxRepository;
   inbox: InboxRepository;
+  journal: JournalRepository;
 }
 
 export interface UnitOfWorkOptions {

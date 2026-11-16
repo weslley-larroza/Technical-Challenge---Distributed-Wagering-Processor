@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { type DynamicModule, type INestApplication, Module } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import type { Container } from '../../bootstrap/container';
-import { HealthController, MetricsController, WageringController, WalletsController } from './controllers';
+import { HealthController, LedgerController, MetricsController, WageringController, WalletsController } from './controllers';
 import { AUTHENTICATOR, AuthGuard, CONTAINER, correlationMiddleware, HttpErrorFilter } from './nest-infrastructure';
 
 @Module({})
@@ -10,7 +10,7 @@ export class HttpModule {
   static forRoot(container: Container): DynamicModule {
     return {
       module: HttpModule,
-      controllers: [WalletsController, WageringController, HealthController, MetricsController],
+      controllers: [WalletsController, WageringController, LedgerController, HealthController, MetricsController],
       providers: [
         { provide: CONTAINER, useValue: container },
         { provide: AUTHENTICATOR, useValue: container.authenticator },
