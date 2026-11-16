@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # the 3 instances of `docker compose --profile app up`
+  - job_name: wagering-cluster
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app1:3000", "app2:3000", "app3:3000"]
+
+  # a local `bun run start` on the host (port 3000)
+  - job_name: wagering-local
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:3000"]

@@ -60,6 +60,40 @@ services:
       timeout: 5s
       retries: 40
 
+  # ---------------------------------------------------------------- observability (profile "observability")
+  # docker compose --profile observability up -d   → Grafana http://localhost:3300 (dashboard "Wagering Processor")
+  # Scrapes the compose cluster (app1..app3) and a local `bun run start` on the host.
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v2.55.1
+    container_name: wagering_prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=2d"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Linux: reach a `bun run start` on the host
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.3.0
+    container_name: wagering_grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # local demo convenience: dashboards readable without login
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/wagering-overview.json
+    ports:
+      - "3300:3000"
+    volumes:
+      - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
   # ---------------------------------------------------------------- application (profile "app")
   # docker compose --profile app up -d --build  → migrations, then 3 identical instances.
   migrate:

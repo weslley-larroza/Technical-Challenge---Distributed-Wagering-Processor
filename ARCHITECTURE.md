@@ -377,8 +377,13 @@ Os dois mecanismos se complementam:
 | Conflitos de lock | `lock_conflicts_total{reason="deadlock"\|"lock-timeout"}` |
 | Outbox lag | `outbox_lag_ms` (histograma commit → broker) + `outbox_pending_messages` + `outbox_oldest_pending_age_ms`. Esta última **cresce enquanto a publicação está travada**, que é quando o histograma não enxerga nada |
 | Latência de processamento | `wager_processing_duration_ms{source}`, `http_request_duration_ms{method,route,status}` |
-| Outras | `pending_reference_resolutions_total`, `reconciliation_mismatches_total`, métricas do runtime |
+| Outras | `pending_reference_resolutions_total`, `reconciliation_mismatches_total`, `trial_balance_mismatches_total`, métricas do runtime |
 
+- **Dashboard** (profile `observability` do compose): Prometheus + Grafana com o dashboard **Wagering Processor** provisionado por arquivo ([wagering-overview.json](docker/observability/grafana/dashboards/wagering-overview.json)).
+  - **Cards no topo:** instâncias no ar, transações/s, taxa de 5xx, outbox pendente, mensagens na DLQ e divergências contábeis (que devem ser sempre 0).
+  - **Linhas:** processamento (status, latência p50/p95/p99, HTTP, idempotência), outbox e mensageria (backlog, lag, filas, retries/DLQ), concorrência (conflitos de lock, retries por motivo, referências fora de ordem) e processo (CPU, memória por instância).
+  - **Gauges globais:** os valores de outbox e fila vêm do banco e do SQS, iguais em todas as instâncias, então os painéis usam `max()` e não `sum()`.
+  - **Validação:** todas as consultas foram avaliadas na API do Prometheus com tráfego real do cluster.
 - **Health:**
   - `/health/live` só indica processo vivo, sem checar dependências; um restart não corrigiria uma dependência fora.
   - `/health/ready` checa PostgreSQL (`select 1`) e SQS (`GetQueueAttributes`) com timeout de 2s e devolve 503 se algum estiver fora.

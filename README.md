@@ -40,6 +40,15 @@ docker compose --profile app stop app2       # SIGTERM → shutdown gracioso (ve
 docker compose --profile app down
 ```
 
+### Dashboard (Prometheus + Grafana, opcional)
+
+```bash
+docker compose --profile observability up -d                    # Prometheus :9090, Grafana :3300
+docker compose --profile observability --profile app up -d --build   # junto com o cluster de 3 instâncias
+```
+
+Abra **http://localhost:3300**. O dashboard **Wagering Processor** é provisionado automaticamente (sem login para leitura; admin: `admin`/`admin`). O Prometheus coleta das instâncias do compose (`app1..app3`) e de uma `bun run start` local na porta 3000. Para ver os painéis se mexendo: `BASE_URL=http://localhost:3001 bun run demo` ou `bun run test:load`.
+
 ### Autenticação com Keycloak (opcional)
 
 Por padrão a API roda **sem autenticação** (`AUTH_MODE=none`, com aviso no log), para facilitar o desenvolvimento local. Para ligar OIDC:
