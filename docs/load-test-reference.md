@@ -142,7 +142,22 @@ Medido do primeiro envio até a última transação aplicada. São cerca de 42 m
 
 Na AWS, filas FIFO têm limite de throughput por fila (maior com batching e com o modo *high throughput*), que precisaria entrar no dimensionamento. Ficou como próximo passo, porque o mesmo método do item 5 (medir antes de otimizar) vale aqui.
 
-### 7. Limitações do experimento
+### 7. Custo do ledger de partidas dobradas (medido depois)
+
+Os números acima são de **antes** do journal de partidas dobradas. Depois dele, rodei a mesma carga, na mesma máquina e com o tracing desligado, duas vezes por versão:
+
+| Versão | Misto (req/s) | Hot wallet (tx/s) | SQS (msg/s) | Invariante |
+|---|---|---|---|---|
+| Referência (sem journal) | 388 | 83 | 127 | OK |
+| Journal, contas + postings em 2 comandos | 366 · 364 | 71 · 70 | 123 · 118 | OK · OK |
+| Journal, 1 comando (CTE) | 369 · 372 | 73 · 72 | 121 · 121 | OK · OK |
+
+- **O custo é real**, porque as duas execuções concordam: cerca de **−5% no misto** e **−14% na hot wallet**. A hot wallet sofre mais porque o trabalho extra acontece **dentro da seção crítica do lock**, que passa de ≈ 12 ms para ≈ 14 ms.
+- **A otimização para um único comando não teve ganho mensurável** (+1,5% a +2%, dentro do ruído). Ficou no código por ser um round-trip a menos, sem custo, mas não a apresento como melhoria.
+- **Hipótese para o custo, não verificada:** o *constraint trigger* de balanceamento roda no COMMIT, ainda com o lock da wallet, e executa **3 vezes por transação** (uma por posting e uma pelo lançamento da wallet), cada uma com algumas consultas. O próximo passo seria medir com `pg_stat_statements` e, se confirmado, fazer a verificação rodar uma vez por transação.
+- **A consistência continua total:** o invariante global, que agora inclui o livro de partidas dobradas, deu OK em todas as execuções.
+
+### 8. Limitações do experimento
 
 - **Host único e não isolado:** gerador, aplicação e infraestrutura disputam a CPU; o Docker roda numa VM.
 - **LocalStack** em vez de SQS real.

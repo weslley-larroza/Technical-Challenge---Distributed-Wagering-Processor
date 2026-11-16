@@ -482,8 +482,8 @@ São **234 rodando sempre**, mais os testes Docker opcionais (`bun run test:dock
 
   | Cenário | Resultado |
   |---|---|
-  | Misto | ~388 req/s, p99 281 ms |
-  | Hot wallet | ~83 tx/s, o teto da serialização por wallet |
+  | Misto | ~370 req/s, p99 ~300 ms (era ~388 antes do journal de partidas dobradas) |
+  | Hot wallet | ~72 tx/s, o teto da serialização por wallet (era ~83; o journal roda dentro do lock) |
   | Consumo SQS | ~127 msg/s; o gargalo provável ainda não foi verificado |
   | Lag da outbox | p99 < 1 s |
 

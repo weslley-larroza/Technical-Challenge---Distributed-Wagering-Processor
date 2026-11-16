@@ -86,7 +86,11 @@ export interface TrialBalanceRow {
 export interface JournalRepository {
   /** Idempotent: creates the accounts that do not exist yet (deterministic ids). */
   ensureAccounts(accounts: readonly LedgerAccount[]): Promise<void>;
-  record(journal: JournalTransaction): Promise<void>;
+  /**
+   * Books the postings; `ensure` accounts are created in the SAME statement (one round
+   * trip — this runs inside the wallet lock's critical section).
+   */
+  record(journal: JournalTransaction, ensure?: readonly LedgerAccount[]): Promise<void>;
   accountTotals(accountId: string): Promise<{ debits: string; credits: string }>;
   /** System accounts one by one, player wallets aggregated into one row. */
   trialBalance(currency: string): Promise<TrialBalanceRow[]>;

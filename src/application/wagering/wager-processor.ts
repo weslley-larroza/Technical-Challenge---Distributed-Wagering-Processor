@@ -91,9 +91,9 @@ export class WagerProcessor {
       // Double-entry: player leg mirrors the wallet entry, the provider's gaming account
       // takes the other side. Same SQL transaction; balanced-ness re-checked at COMMIT.
       const counterparty = LedgerAccount.providerGaming(tx.providerId, tx.money.currency);
-      await r.journal.ensureAccounts([counterparty]);
       await r.journal.record(
         JournalTransaction.forWalletMovement({ entry: outcome.ledgerEntry, counterparty, newId: () => this.ids.next() }),
+        [counterparty], // created on first use, in the same statement
       );
     }
 

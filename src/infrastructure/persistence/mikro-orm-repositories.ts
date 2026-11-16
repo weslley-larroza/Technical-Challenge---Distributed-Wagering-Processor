@@ -272,11 +272,28 @@ class SqlJournalRepository implements JournalRepository {
     );
   }
 
-  async record(journal: JournalTransaction): Promise<void> {
-    const values = journal.postings.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+  async record(journal: JournalTransaction, ensure: readonly LedgerAccount[] = []): Promise<void> {
+    const postings = journal.postings.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const postingParams = journal.postings.flatMap((p) => [
+      p.id, p.transactionId, p.accountId, p.direction, p.money.amount, p.money.currency, p.createdAt,
+    ]);
+    if (ensure.length === 0) {
+      await this.em.execute(
+        `insert into journal_postings (id, transaction_id, account_id, direction, amount, currency, created_at) values ${postings}`,
+        postingParams,
+      );
+      return;
+    }
+    // Data-modifying CTE: account upsert + postings in ONE statement. The posting → account
+    // FK is deferred, so it is checked at COMMIT, after both inserts.
+    const accounts = ensure.map(() => '(?, ?, ?, ?, ?, now())').join(', ');
     await this.em.execute(
-      `insert into journal_postings (id, transaction_id, account_id, direction, amount, currency, created_at) values ${values}`,
-      journal.postings.flatMap((p) => [p.id, p.transactionId, p.accountId, p.direction, p.money.amount, p.money.currency, p.createdAt]),
+      `with accounts as (
+         insert into ledger_accounts (id, code, kind, currency, wallet_id, created_at) values ${accounts}
+         on conflict (code) do nothing
+       )
+       insert into journal_postings (id, transaction_id, account_id, direction, amount, currency, created_at) values ${postings}`,
+      [...ensure.flatMap((a) => [a.id, a.code, a.kind, a.currency, a.walletId ?? null]), ...postingParams],
     );
   }
 
