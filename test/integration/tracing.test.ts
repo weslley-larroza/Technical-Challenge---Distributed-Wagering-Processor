@@ -4,7 +4,7 @@
  * (request → outbox row → publisher → SQS message attribute) and that an inbound message
  * carrying `traceparent` is processed inside the producer's trace.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { SendMessageCommand } from '@aws-sdk/client-sqs';
 import type { INestApplication } from '@nestjs/common';
@@ -15,6 +15,9 @@ import { initTracing, type TracingHandle, withSpan } from '../../src/infrastruct
 import { createHttpApp } from '../../src/interfaces/http/http-app';
 import { drain, provisionQueues, startContainer, testEnv, waitFor, wagerData } from '../support/messaging';
 import { createTestOrm, resetSchema } from './support/db';
+
+// Waits on a real SQS round trip (publish → consume); keep slower machines clear of bun's 5s default.
+setDefaultTimeout(60_000);
 
 const env = testEnv();
 const exporter = new InMemorySpanExporter();

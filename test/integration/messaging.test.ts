@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import type { EventPublisher } from '../../src/application/ports/messaging';
 import type { Container } from '../../src/bootstrap/container';
@@ -14,6 +14,10 @@ import {
   wagerData,
 } from '../support/messaging';
 import { createTestOrm, resetSchema } from './support/db';
+
+// These tests wait on real SQS visibility timeouts and retry backoffs (1s + 2s before the DLQ),
+// which sit right at bun's 5s default; a slower machine must not turn them into timeouts.
+setDefaultTimeout(60_000);
 
 const env = testEnv();
 let main: Container;
