@@ -1,7 +1,9 @@
 import { MikroORM } from '@mikro-orm/postgresql';
 import { PublishOutbox } from '../application/messaging/publish-outbox';
 import type { EventPublisher } from '../application/ports/messaging';
-import { type Metrics, noopMetrics } from '../application/ports/system';
+import { GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
+import type { Metrics } from '../application/ports/system';
+import { PrometheusMetrics } from '../infrastructure/observability/prometheus-metrics';
 import { WalletQueries } from '../application/queries';
 import { ResolvePendingReferences } from '../application/wagering/resolve-pending-references';
 import { SubmitWagerTransaction } from '../application/wagering/submit-wager-transaction';
@@ -52,7 +54,9 @@ export async function createContainer(config: AppConfig, overrides: ContainerOve
     createOrmConfig({ clientUrl: config.databaseUrl, poolMax: config.dbPoolMax, connect: false, ensureDatabase: false }),
   );
   const logger = new JsonLogger(config.logLevel, { service: 'wagering-processor', instanceId: config.instanceId });
-  const metrics = overrides.metrics ?? noopMetrics;
+  // Tests may inject a recording spy; otherwise Prometheus (exposed on GET /metrics).
+  const prometheus = overrides.metrics ? undefined : new PrometheusMetrics({ service: 'wagering-processor' });
+  const metrics: Metrics = overrides.metrics ?? prometheus!;
   const clock = systemClock;
   const ids = uuidV7Generator;
   const uow = new MikroOrmUnitOfWork(orm, { lockTimeoutMs: config.lockTimeoutMs });
@@ -108,6 +112,39 @@ export async function createContainer(config: AppConfig, overrides: ContainerOve
     logger.child({ component: 'pending-reference-worker' }),
   );
 
+  if (prometheus) {
+    // Outbox lag that keeps growing while publishing is stuck (the histogram only sees successes).
+    const outboxStats = () => withTimeout(uow.run((r) => r.outbox.stats(clock.now())), 1_000, 'outbox stats');
+    prometheus.registerGauge('outbox_pending_messages', 'Unpublished outbox events', [], async () => [
+      { value: (await outboxStats()).pending },
+    ]);
+    prometheus.registerGauge('outbox_oldest_pending_age_ms', 'Age of the oldest unpublished outbox event', [], async () => [
+      { value: (await outboxStats()).oldestAgeMs },
+    ]);
+    // Includes the DLQ depth: "mensagens em DLQ" as a level, not only as a rate.
+    prometheus.registerGauge('sqs_queue_messages', 'Approximate SQS queue depth', ['queue', 'state'], async () => {
+      const samples = await Promise.all(
+        [queues.wager, queues.wagerDlq].map(async (q) => {
+          const r = await withTimeout(
+            sqs.send(
+              new GetQueueAttributesCommand({
+                QueueUrl: await q.get(),
+                AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible'],
+              }),
+            ),
+            1_000,
+            'sqs depth',
+          );
+          return [
+            { labels: { queue: q.queueName, state: 'visible' }, value: Number(r.Attributes?.ApproximateNumberOfMessages ?? 0) },
+            { labels: { queue: q.queueName, state: 'in_flight' }, value: Number(r.Attributes?.ApproximateNumberOfMessagesNotVisible ?? 0) },
+          ];
+        }),
+      );
+      return samples.flat();
+    });
+  }
+
   const healthIndicators: HealthIndicator[] = [
     { name: 'postgres', check: () => withTimeout(orm.em.fork().execute('select 1').then(() => undefined), 2_000, 'postgres') },
     { name: 'sqs', check: () => withTimeout(queues.wager.ping(), 2_000, 'sqs') },
@@ -120,6 +157,7 @@ export async function createContainer(config: AppConfig, overrides: ContainerOve
     queues,
     logger,
     metrics,
+    prometheus,
     authenticator: overrides.authenticator ?? new AllowAllAuthenticator(),
     healthIndicators,
     submitWagerTransaction,

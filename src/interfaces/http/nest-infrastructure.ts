@@ -10,7 +10,7 @@ import {
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { Logger } from '../../application/ports/system';
+import type { Logger, Metrics } from '../../application/ports/system';
 import type { RequestAuthenticator } from './auth/authenticator';
 import { mapError } from './error-mapping';
 import type { HttpRequest, HttpResponse } from './http-types';
@@ -82,9 +82,9 @@ const CORRELATION_ID_PATTERN = /^[\w.:-]{1,128}$/;
  * Accepts a caller-provided X-Correlation-Id (validated) or generates one, echoes it on
  * the response and writes one structured access-log line per request.
  */
-export function correlationMiddleware(logger: Logger) {
+export function correlationMiddleware(logger: Logger, metrics: Metrics) {
   return (
-    req: HttpRequest & { path?: string },
+    req: HttpRequest & { path?: string; route?: { path?: string } },
     res: HttpResponse & { statusCode: number; on(event: 'finish', cb: () => void): void },
     next: () => void,
   ) => {
@@ -95,12 +95,17 @@ export function correlationMiddleware(logger: Logger) {
 
     const startedAt = performance.now();
     res.on('finish', () => {
+      const durationMs = Math.round((performance.now() - startedAt) * 100) / 100;
+      // route TEMPLATE (e.g. /wallets/:walletId), never the raw path → bounded cardinality
+      const labels = { method: req.method, route: req.route?.path ?? 'unmatched', status: String(res.statusCode) };
+      metrics.increment('http_requests_total', labels);
+      metrics.observe('http_request_duration_ms', durationMs, labels);
       logger.info('http request', {
         correlationId: req.correlationId,
         method: req.method,
         path: req.path ?? req.url,
         status: res.statusCode,
-        durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+        durationMs,
       });
     });
     next();

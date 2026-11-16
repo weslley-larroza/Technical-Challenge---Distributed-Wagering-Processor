@@ -250,3 +250,40 @@ describe('cross-cutting', () => {
     }
   });
 });
+
+describe('GET /metrics (Prometheus)', () => {
+  test('exposes every metric required by section 12, with bounded label values', async () => {
+    const w = await createWallet('100.00');
+    const body = txBody(w, { money: { amount: '10.00', currency: 'BRL' } });
+    await submit(body);
+    await submit(body); // replay
+    await submit({ ...body, money: { amount: '11.00', currency: 'BRL' } }); // conflict
+
+    const res = await fetch(`${base}/metrics`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/plain');
+    const text = await res.text();
+    const sample = (name: string, labels: string) =>
+      text.split('\n').find((l) => l.startsWith(`${name}{`) && labels.split(',').every((p) => l.includes(p)));
+
+    // transactions by status
+    expect(sample('wager_transactions_total', 'status="PROCESSED",kind="BET",source="http"')).toBeDefined();
+    // duplicates detected / idempotency conflicts
+    expect(sample('idempotent_replays_total', 'source="http"')).toMatch(/ [1-9]\d*$/);
+    expect(sample('idempotency_conflicts_total', 'code="IDEMPOTENCY_KEY_REUSED"')).toMatch(/ [1-9]\d*$/);
+    // processing latency + HTTP latency labelled by route TEMPLATE (no ids in labels)
+    expect(text).toContain('wager_processing_duration_ms_bucket');
+    expect(sample('http_requests_total', 'route="/wagering/transactions",status="200"')).toBeDefined();
+    expect(text).not.toMatch(new RegExp(w.id));
+    // retries, lock conflicts, DLQ, outbox lag are declared even before they first fire
+    for (const name of ['persistence_retries_total', 'lock_conflicts_total', 'sqs_retries_total', 'sqs_dlq_total', 'outbox_lag_ms']) {
+      expect(text).toContain(`# TYPE ${name} `);
+    }
+    // scrape-time gauges: outbox backlog / age and queue depth incl. DLQ
+    expect(text).toMatch(/^outbox_pending_messages\{[^}]*\} \d+/m);
+    expect(text).toMatch(/^outbox_oldest_pending_age_ms\{[^}]*\} \d+/m);
+    expect(text).toMatch(/^sqs_queue_messages\{[^}]*queue="wager-transactions-dlq\.fifo"[^}]*\} \d+/m);
+    // process metrics from the runtime
+    expect(text).toContain('process_cpu_seconds_total');
+  });
+});

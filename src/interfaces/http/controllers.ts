@@ -86,6 +86,24 @@ export class WageringController {
   }
 }
 
+/** Prometheus scrape endpoint. Public like health: meant for the internal network / scraper only. */
+@Controller('metrics')
+@Public()
+export class MetricsController {
+  constructor(@Inject(CONTAINER) private readonly c: Container) {}
+
+  @Get()
+  async scrape(@Res({ passthrough: true }) res: HttpResponse) {
+    if (!this.c.prometheus) {
+      res.status(404);
+      return 'metrics disabled';
+    }
+    const { contentType, body } = await this.c.prometheus.render();
+    res.setHeader('Content-Type', contentType);
+    return body;
+  }
+}
+
 @Controller('health')
 @Public()
 export class HealthController {
