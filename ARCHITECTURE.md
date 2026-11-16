@@ -484,8 +484,8 @@ São **234 rodando sempre**, mais os testes Docker opcionais (`bun run test:dock
   |---|---|
   | Misto | ~370 req/s, p99 ~300 ms (era ~388 antes do journal de partidas dobradas) |
   | Hot wallet | ~72 tx/s, o teto da serialização por wallet (era ~83; o journal roda dentro do lock) |
-  | Consumo SQS | ~127 msg/s; o gargalo provável ainda não foi verificado |
-  | Lag da outbox | p99 < 1 s |
+  | Consumo SQS | ~120 msg/s; o gargalo provável ainda não foi verificado |
+  | Lag da outbox | p99 entre 0,5 e 2,3 s, variando entre execuções (era < 1 s antes do journal) |
 
   Nenhum erro e invariante OK sob carga. Esses números são um limite inferior, não um dimensionamento.
 - **Retenção:** o ledger, a inbox e a outbox crescem para sempre. Particionamento ou arquivamento ficaram fora de escopo.
