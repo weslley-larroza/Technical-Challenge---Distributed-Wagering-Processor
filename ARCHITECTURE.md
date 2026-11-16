@@ -393,7 +393,7 @@ Os dois mecanismos se complementam:
 
 ## 15. Estratégia de testes
 
-São **208 rodando sempre**, mais os testes Docker opcionais (`bun run test:docker`).
+São **209 rodando sempre**, mais os testes Docker opcionais (`bun run test:docker`).
 
 - **Nenhum mock de PostgreSQL ou SQS:** integração, e2e e concorrência usam containers reais.
 - **Injeção de falhas** pelas portas: um publisher que falha, um hook antes do ack, um banco inalcançável.
@@ -403,6 +403,7 @@ São **208 rodando sempre**, mais os testes Docker opcionais (`bun run test:dock
 | `test/unit` | `Money` (escala, entradas inválidas, limites, moeda); invariantes da `Wallet`; todas as regras da seção 7; máquina de estados; hash canônico; taxonomia de erros da fila |
 | `test/integration/schema` | Cada constraint e trigger do §7 dispara, verificado **pelo nome**; migrations `down → up` |
 | `test/integration/orm-mapping` | Round-trip domínio ⇄ banco; precisão no limite; rollback total quando um invariante falha |
+| `test/integration/atomicity` | **Falha injetada no COMMIT**, depois de todos os INSERTs: transação, ledger, saldo, inbox e outbox somem juntos; o redelivery aplica tudo uma vez |
 | `test/integration/wagering` | Use cases fim a fim: replay fiel, conflitos, referência fora de ordem (cascata e cadeia), expiração pelo worker, reconciliação com divergência forçada |
 | `test/integration/messaging` | Inbox e redelivery; DLQ imediata vs. por tentativas; ordenação FIFO; **morte depois do commit e antes do ack**; drenagem no stop; **publishers concorrentes**; falha do broker |
 | `test/e2e` | Contrato HTTP completo; Postgres fora do ar → 503 com o processo vivo; `/metrics` |

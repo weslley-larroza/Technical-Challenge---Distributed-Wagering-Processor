@@ -61,6 +61,7 @@ No cluster Docker: `AUTH_MODE=oidc docker compose --profile app --profile auth u
 | Comando | O que faz |
 |---|---|
 | `bun run start` | Sobe a aplicação com todos os papéis habilitados |
+| `bun run demo` | **Roteiro guiado** contra a app rodando (idempotência, seção 8, fora de ordem, fila, reconciliação), com ✔/✘ por passo. Teste manual completo e experimentos de falha em [docs/manual-testing.md](docs/manual-testing.md) |
 | `bun run infra:up` / `infra:down` | Sobe / derruba PostgreSQL e LocalStack |
 | `bun run migration:up` / `migration:down` / `migration:status` | Migrations versionadas e reversíveis |
 | `bun run sqs:setup` | Cria as filas de forma idempotente (alternativa ao script de init do LocalStack) |
