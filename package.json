@@ -11,6 +11,7 @@
     "test:integration": "bun test test/integration",
     "test:concurrency": "bun test test/concurrency",
     "test:docker": "RUN_DOCKER_TESTS=1 bun test test/docker",
+    "test:load": "bun test/load/load-test.ts",
     "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down",
     "migration:up": "bun src/infrastructure/persistence/migrate.ts up",

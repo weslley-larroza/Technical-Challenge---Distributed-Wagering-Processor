@@ -302,7 +302,11 @@ O consumidor ([sqs-wager-consumer.ts](src/interfaces/messaging/sqs-wager-consume
 - **Publisher** ([publish-outbox.ts](src/application/messaging/publish-outbox.ts)), uma transação por rodada:
   1. `SELECT … FOR UPDATE SKIP LOCKED` das linhas vencidas;
   2. chamada `SendMessageBatch` ao SQS;
-  3. `markPublished` ou `scheduleRetry` (backoff de 1s a 60s, **nunca descarta**);
+  3. `markPublished` ou `scheduleRetry` (backoff de 1s a 60s, **nunca descarta**):
+     - **sucessos:** gravados com **um único `UPDATE` por lote**;
+     - **falhas:** por linha.
+
+     O envio ao SQS é dividido em *lanes* paralelas por `aggregateId`, o que preserva a ordem por agregado dentro do lote. O lote padrão é de 200. Essas escolhas saíram do teste de carga: o `UPDATE` por linha do Unit of Work era o gargalo, e o lag p50 caiu de 8,3s para 0,2s (ver [docs/load-test-reference.md](docs/load-test-reference.md) §5);
   4. COMMIT.
 - **Publishers concorrentes:** N publishers pegam lotes disjuntos, sem lock global nem líder. Teste: dois publishers alternando lotes de 5 publicaram todos os eventos, **nenhum duas vezes**; e 3 instâncias também.
 - **Morte depois do envio e antes do commit:** a linha continua pendente e outra instância a reenvia. **Duplicatas são possíveis e seguras:**
@@ -427,7 +431,16 @@ São **208 rodando sempre**, mais os testes Docker opcionais (`bun run test:dock
 - **Ledger de partida simples.** Double-entry (contas de casa e jogador) é opcional e não foi feito.
 - **Uma única moeda nos testes.** O modelo é multi-moeda, e o conflito de moeda é testado, mas os cenários usam BRL.
 - **LocalStack fixado em 4.4.** As imagens mais recentes passaram a exigir token de conta. Em produção, o código usa o SQS real sem mudança: o endpoint é configurável e `useQueueUrlAsEndpoint` só é desligado com endpoint customizado.
-- **Sem teste de carga.** É um diferencial opcional e ficou fora do timebox. Os testes de concorrência medem correção, não vazão.
+- **Capacidade medida num único host** (`bun run test:load`; análise em [docs/load-test-reference.md](docs/load-test-reference.md)). Com 3 instâncias, gerador, PostgreSQL e LocalStack na mesma máquina:
+
+  | Cenário | Resultado |
+  |---|---|
+  | Misto | ~388 req/s, p99 281 ms |
+  | Hot wallet | ~83 tx/s, o teto da serialização por wallet |
+  | Consumo SQS | ~127 msg/s; o gargalo provável ainda não foi verificado |
+  | Lag da outbox | p99 < 1 s |
+
+  Nenhum erro e invariante OK sob carga. Esses números são um limite inferior, não um dimensionamento.
 - **Retenção:** o ledger, a inbox e a outbox crescem para sempre. Particionamento ou arquivamento ficaram fora de escopo.
   - **Ledger e transações:** um trigger bloqueia o `DELETE`.
   - **Outbox e inbox:** não têm trigger de `DELETE`, de propósito, para permitir um job de limpeza de linhas já publicadas ou processadas. Esse job não foi implementado.

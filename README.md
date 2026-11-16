@@ -70,6 +70,7 @@ No cluster Docker: `AUTH_MODE=oidc docker compose --profile app --profile auth u
 | `bun run test:integration` | PostgreSQL e LocalStack reais |
 | `bun run test:concurrency` | Paralelismo real, incluindo **3 processos** do `src/main.ts` |
 | `bun run test:docker` | Opcional: `SIGTERM` real nas 3 instâncias do compose (Linux) + fluxo com Keycloak real |
+| `bun run test:load` | Teste de carga (cerca de 2 min): sobe 3 instâncias num banco isolado e grava `docs/load-test-report.md`. A execução de referência comentada está em [docs/load-test-reference.md](docs/load-test-reference.md). Parâmetros: `LOAD_CONCURRENCY`, `LOAD_MIXED_SEC`, `LOAD_HOT_SEC`, `LOAD_SQS_MESSAGES`, `LOAD_WALLETS`, `LOAD_INSTANCES` |
 
 Os testes usam o banco `wagering_test`, criado automaticamente, e filas com nome único por arquivo. Não interferem nos dados de desenvolvimento.
 
@@ -138,6 +139,7 @@ Os eventos de integração (`WagerTransactionProcessed`, `WagerTransactionReject
 | `SQS_VISIBILITY_TIMEOUT_SEC` / `SQS_WAIT_TIME_SEC` | `30` / `10` | |
 | `SQS_RETRY_BASE_SEC` / `SQS_RETRY_MAX_SEC` | `2` / `300` | Backoff exponencial via visibilidade |
 | `ENABLE_HTTP` / `ENABLE_CONSUMER` / `ENABLE_OUTBOX_PUBLISHER` / `ENABLE_PENDING_REFERENCE_WORKER` | `true` | Papéis do processo; todos podem rodar em todas as instâncias |
+| `OUTBOX_BATCH_SIZE` / `OUTBOX_IDLE_DELAY_MS` | `200` / `250` | Lote do publisher / espera quando não há eventos |
 | `SHUTDOWN_GRACE_MS` | `20000` | |
 | `AUTH_MODE` | `none` | `none` · `oidc` |
 | `OIDC_ISSUER` | — | Obrigatório com `oidc`, ex.: `http://localhost:8080/realms/wagering` |

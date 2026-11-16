@@ -1,0 +1,73 @@
+{
+  "params": {
+    "instances": 3,
+    "concurrency": 64,
+    "wallets": 200,
+    "mixedSec": 30,
+    "hotSec": 15,
+    "hotConcurrency": 32,
+    "sqsMessages": 3000
+  },
+  "mixed": {
+    "requests": 11068,
+    "throughput": 366.52795817676235,
+    "p50": 156.34529999999995,
+    "p95": 292.64440000000104,
+    "p99": 331.02769999999873,
+    "max": 435.75329999999985,
+    "errorRate": 0,
+    "errors": 0,
+    "business422": 0,
+    "conflicts409": 0,
+    "statuses": {
+      "200": 11068
+    }
+  },
+  "replay": {
+    "requests": 5390,
+    "throughput": 1076.5041329170633,
+    "p50": 13.877100000005157,
+    "p95": 26.408000000003085,
+    "p99": 47.84200000000419,
+    "max": 64.41189999999915,
+    "errorRate": 0,
+    "errors": 0,
+    "business422": 0,
+    "conflicts409": 0,
+    "statuses": {
+      "200": 5390
+    }
+  },
+  "hot": {
+    "requests": 1144,
+    "throughput": 74.52422228420559,
+    "p50": 464.96190000000206,
+    "p95": 633.8449000000037,
+    "p99": 674.3683999999994,
+    "max": 772.9084000000003,
+    "errorRate": 0,
+    "errors": 0,
+    "business422": 0,
+    "conflicts409": 0,
+    "statuses": {
+      "200": 1144
+    }
+  },
+  "sqs": {
+    "messages": 3000,
+    "enqueueSec": 1.2400218999999997,
+    "drainSec": 22.061271700000006
+  },
+  "lockConflicts": 0,
+  "retries": 0,
+  "outbox": {
+    "events": 29502,
+    "maxPending": 11577,
+    "maxOldestAgeMs": 16176,
+    "drainSec": 0.0015338000000047031,
+    "p50": 8256.704980842911,
+    "p95": 49754.66893039048,
+    "p99": 57950.9337860781
+  },
+  "invariant": "OK"
+}
