@@ -63,6 +63,12 @@ export interface OutboxRepository {
    */
   claimDue(now: Date, limit: number): Promise<OutboxMessage[]>;
   save(message: OutboxMessage): Promise<void>;
+  /**
+   * Set-based "published" mark for messages already transitioned in the domain
+   * (`markPublished`). One statement for the whole batch: the load test showed the
+   * per-row ORM update was the publisher's bottleneck.
+   */
+  markPublished(messages: readonly OutboxMessage[]): Promise<void>;
   /** Unpublished count and age of the oldest one (outbox lag). */
   stats(now: Date): Promise<{ pending: number; oldestAgeMs: number }>;
 }

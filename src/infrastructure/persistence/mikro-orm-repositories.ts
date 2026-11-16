@@ -208,6 +208,19 @@ class MikroOrmOutboxRepository implements OutboxRepository {
     OutboxMessageMapper.toRecord(message, managed);
   }
 
+  async markPublished(messages: readonly OutboxMessage[]): Promise<void> {
+    if (messages.length === 0) return;
+    const publishedAt = messages[0]!.publishedAt;
+    if (!publishedAt || messages.some((m) => m.publishedAt?.getTime() !== publishedAt.getTime())) {
+      throw new Error('markPublished expects messages transitioned with the same publishedAt');
+    }
+    // Guarded by `published_at is null` (and by the immutability trigger): a row can only be marked once.
+    await this.em.execute(
+      'update outbox_messages set published_at = ?, next_attempt_at = null where published_at is null and id in (?)',
+      [publishedAt, messages.map((m) => m.id)],
+    );
+  }
+
   async stats(now: Date): Promise<{ pending: number; oldestAgeMs: number }> {
     const [row] = await this.em.execute<{ pending: number; oldest: Date | null }[]>(
       'select count(*)::int as pending, min(occurred_at) as oldest from outbox_messages where published_at is null',

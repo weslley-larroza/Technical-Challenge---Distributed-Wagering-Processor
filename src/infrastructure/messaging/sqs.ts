@@ -114,31 +114,49 @@ export class SqsEventPublisher implements EventPublisher {
       return result;
     }
 
-    for (let i = 0; i < messages.length; i += 10) {
-      const chunk = messages.slice(i, i + 10);
-      try {
-        const response = await this.client.send(
-          new SendMessageBatchCommand({
-            QueueUrl: queueUrl,
-            Entries: chunk.map((m) => ({
-              Id: m.id,
-              MessageBody: JSON.stringify(m.payload),
-              MessageGroupId: m.aggregateId,
-              MessageDeduplicationId: m.id,
-              MessageAttributes: { eventType: { DataType: 'String', StringValue: m.eventType } },
-            })),
-          }),
-        );
-        for (const ok of response.Successful ?? []) if (ok.Id) result.published.push(ok.Id);
-        for (const ko of response.Failed ?? []) {
-          if (ko.Id) result.failed.push({ id: ko.Id, error: `${ko.Code}: ${ko.Message ?? ''}` });
+    // Lanes run in parallel; one aggregate always maps to the same lane and a lane is sent
+    // sequentially, so per-aggregate order inside the batch is preserved. (The load test
+    // showed strictly sequential 10-message calls could not keep up with ~700 events/s.)
+    const lanes: OutboxMessage[][] = Array.from({ length: PUBLISH_LANES }, () => []);
+    for (const m of messages) lanes[laneOf(m.aggregateId)]!.push(m);
+
+    await Promise.all(
+      lanes.map(async (lane) => {
+        for (let i = 0; i < lane.length; i += 10) {
+          const chunk = lane.slice(i, i + 10);
+          try {
+            const response = await this.client.send(
+              new SendMessageBatchCommand({
+                QueueUrl: queueUrl,
+                Entries: chunk.map((m) => ({
+                  Id: m.id,
+                  MessageBody: JSON.stringify(m.payload),
+                  MessageGroupId: m.aggregateId,
+                  MessageDeduplicationId: m.id,
+                  MessageAttributes: { eventType: { DataType: 'String', StringValue: m.eventType } },
+                })),
+              }),
+            );
+            for (const ok of response.Successful ?? []) if (ok.Id) result.published.push(ok.Id);
+            for (const ko of response.Failed ?? []) {
+              if (ko.Id) result.failed.push({ id: ko.Id, error: `${ko.Code}: ${ko.Message ?? ''}` });
+            }
+          } catch (error) {
+            result.failed.push(...chunk.map((m) => ({ id: m.id, error: describe(error) })));
+          }
         }
-      } catch (error) {
-        result.failed.push(...chunk.map((m) => ({ id: m.id, error: describe(error) })));
-      }
-    }
+      }),
+    );
     return result;
   }
+}
+
+const PUBLISH_LANES = 8;
+
+function laneOf(aggregateId: string): number {
+  let h = 0;
+  for (let i = 0; i < aggregateId.length; i++) h = (h * 31 + aggregateId.charCodeAt(i)) | 0;
+  return Math.abs(h) % PUBLISH_LANES;
 }
 
 function describe(error: unknown): string {

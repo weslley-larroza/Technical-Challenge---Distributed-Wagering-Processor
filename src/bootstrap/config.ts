@@ -101,7 +101,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
       retryBaseSec: int(env, 'SQS_RETRY_BASE_SEC', 2),
       retryMaxSec: int(env, 'SQS_RETRY_MAX_SEC', 300),
     },
-    outbox: { batchSize: int(env, 'OUTBOX_BATCH_SIZE', 50), idleDelayMs: int(env, 'OUTBOX_IDLE_DELAY_MS', 250) },
+    outbox: { batchSize: int(env, 'OUTBOX_BATCH_SIZE', 200), idleDelayMs: int(env, 'OUTBOX_IDLE_DELAY_MS', 250) },
     scheduler: {
       intervalMs: int(env, 'PENDING_REFERENCE_INTERVAL_MS', 1_000),
       batchSize: int(env, 'PENDING_REFERENCE_BATCH_SIZE', 100),

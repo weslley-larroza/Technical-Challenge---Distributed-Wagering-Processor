@@ -8,7 +8,9 @@ interface MetricSpec {
 }
 
 const LATENCY_MS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000];
-const LAG_MS = [10, 50, 100, 250, 500, 1_000, 2_500, 5_000, 15_000, 60_000, 300_000];
+// Dense in the 1–60 s range: the load test showed lag living there under saturation, and
+// coarse buckets (15 s → 60 s) made interpolated p95/p99 meaningless.
+const LAG_MS = [10, 50, 100, 250, 500, 1_000, 2_500, 5_000, 7_500, 10_000, 15_000, 20_000, 30_000, 45_000, 60_000, 120_000, 300_000];
 
 /**
  * Catalogue of every metric the application emits (section 12). Declared up front so the

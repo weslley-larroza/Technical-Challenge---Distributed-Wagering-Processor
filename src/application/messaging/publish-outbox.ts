@@ -41,9 +41,11 @@ export class PublishOutbox {
       const failures = new Map(result.failed.map((f) => [f.id, f.error]));
       const doneAt = this.clock.now();
 
+      const succeeded = [];
       for (const message of batch) {
         if (published.has(message.id)) {
           message.markPublished(doneAt);
+          succeeded.push(message);
           this.metrics.increment('outbox_published_total', { eventType: message.eventType });
           this.metrics.observe('outbox_lag_ms', doneAt.getTime() - message.occurredAt.getTime(), {
             eventType: message.eventType,
@@ -58,9 +60,10 @@ export class PublishOutbox {
             nextAttemptAt: message.nextAttemptAt?.toISOString(),
             error: failures.get(message.id),
           });
+          await r.outbox.save(message); // rare path: per-row retry schedule
         }
-        await r.outbox.save(message);
       }
+      await r.outbox.markPublished(succeeded); // hot path: one statement for the batch
       return { claimed: batch.length, published: published.size, failed: batch.length - published.size };
     });
   }
